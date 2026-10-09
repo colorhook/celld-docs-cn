@@ -6,6 +6,7 @@ function loadIndex(){return indexPromise??=fetch('/search-index.json').then(r=>{
 function openSearch(){dialog.showModal();input.focus();loadIndex().catch(()=>{results.textContent='搜索暂时不可用，请稍后重试。';});}
 document.querySelector('#search-open').addEventListener('click',openSearch);
 document.querySelector('#search-close').addEventListener('click',()=>dialog.close());
+results.addEventListener('click',event=>{if(event.target.closest('a'))dialog.close();});
 dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}});
 document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();if(!dialog.open)openSearch();}if(event.key==='Escape')closeMenu();});
 let searchVersion=0;
