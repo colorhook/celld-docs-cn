@@ -1,46 +1,41 @@
-# Limitations
+<a id="limitations"></a>
 
-celld v0.6.2 is a beta release with these operational limits. See
-[Cloudflare compatibility](cloudflare-compat.md) for the supported services,
-APIs, and Wrangler configuration.
+# 限制
 
-## Fleets
+celld v0.6.2 是测试版，具有以下运行限制。支持的服务、API 和 Wrangler 配置请参阅 [Cloudflare 兼容性](cloudflare-compat.md)。
 
-- A fleet runs one application. celld has no account service, multi-tenant
-  scheduler, or managed ingress.
-- A fleet stores its durable state in an S3-compatible bucket, a Google Cloud
-  Storage bucket, or an Azure Blob Storage container. Only `celld dev` can use
-  the local SQLite object store.
-- Ownership balancing counts cells by node weight, not by CPU or memory use.
-  It moves only hibernated cells, so a fleet without idle eviction balances
-  only the cells that hibernate on their own.
+<a id="fleets"></a>
 
-## Networking and security
+## 集群
 
-- celld does not terminate TLS. Terminate public TLS at an ingress proxy, and
-  put the internal listener on a private network or an encrypted overlay.
-- Peer traffic is plaintext HTTP. The fleet HMAC authenticates tunnel
-  establishment and control requests but does not encrypt data, so the network
-  must provide confidentiality.
-- The fleet bucket controls the fleet. Give its credentials access to one fleet
-  only. See [Security](security.md).
+- 一个集群运行一个应用。celld 没有账户服务、多租户调度器或托管入口。
+- 集群将持久化状态存储在兼容 S3 的存储桶、Google Cloud Storage 存储桶或 Azure Blob Storage 容器中。只有 `celld dev` 可以使用本地 SQLite 对象存储。
+- 所有权平衡按节点权重统计单元数量，不依据 CPU 或内存使用量。它只迁移休眠单元，因此未配置空闲逐出的集群，只会平衡自行进入休眠的单元。
 
-## Object storage credentials
+<a id="networking-and-security"></a>
 
-- The credential methods differ by provider. See
-  [Configure object storage](README.md#configure-object-storage).
-- Azure identity works only in the public Azure cloud. A managed identity from
-  Azure App Service or Azure Container Apps does not work. Use a workload
-  identity or a storage account key there.
+## 网络与安全
 
-## WebSockets
+- celld 不终止 TLS。公共 TLS 应在入口代理处终止，内部监听器应置于私有网络或加密覆盖网络上。
+- 节点间流量使用明文 HTTP。集群 HMAC 对隧道建立和控制请求进行认证，但不加密数据，因此必须由网络提供保密性。
+- 集群存储桶控制整个集群。其凭据应只具有一个集群的访问权限，详见[安全](security.md)。
 
-- An outbound Durable Object WebSocket keeps its cell resident. It closes when
-  the cell moves to another node, so the application must store the
-  connection intent and reconnect.
-- A node limits the resident cells and outbound WebSockets.
+<a id="object-storage-credentials"></a>
 
-## Platforms
+## 对象存储凭据
 
-- The installer supplies binaries for Linux x86-64, Linux ARM64, and Apple
-  Silicon. Windows is not supported.
+- 各服务提供商的凭据方式不同，详见[配置对象存储](README.md#configure-object-storage)。
+- Azure 身份认证仅支持 Azure 公有云。Azure App Service 或 Azure Container Apps 提供的托管身份不可用；在这些环境中应使用工作负载身份或存储账户密钥。
+
+<a id="websockets"></a>
+
+## WebSocket
+
+- Durable Object 的出站 WebSocket 会使单元保持驻留。单元迁移到其他节点时，连接会关闭，因此应用必须保存连接意图并重新连接。
+- 节点会限制驻留单元和出站 WebSocket 的数量。
+
+<a id="platforms"></a>
+
+## 平台
+
+- 安装器提供 Linux x86-64、Linux ARM64 和 Apple Silicon 的二进制文件。不支持 Windows。

@@ -1,330 +1,179 @@
-# What celld guarantees
+<a id="what-celld-guarantees"></a>
 
-celld makes two promises. Exactly one node serves a cell at a time, so two
-machines never write the same database. celld does not acknowledge a write
-until the write survives a failure, so an acknowledged write is never lost. Both
-promises require a bucket with working conditional writes and ranged reads, and
-a supervisor that restarts the process.
+# celld 的保证
 
-## What the bucket must provide
+celld 作出两项承诺。同一时刻，恰好有一个节点为一个单元提供服务，因此两台机器绝不会写入同一个数据库。celld 只有在写入能够经受故障后才确认，因此已确认写入永不丢失。两项承诺都要求存储桶正确支持条件写入和范围读取，并且有进程监管程序负责重启进程。
 
-- A conditional create: the write must fail when the object exists.
-- A conditional overwrite: the write must fail when the object changed after the
-  read.
-- Read-after-write consistency: a read after a successful write must return that
-  write.
-- Ranged reads: a read must return the requested byte range and the bytes from
-  that range.
-- For epoch GC (`CELLD_LTX_RETENTION_SECS`) only, list-after-write consistency:
-  a listing after a successful write must include the written object. Amazon
-  S3, Cloudflare R2, Google Cloud Storage, and Azure Blob Storage provide it. A
-  Tigris Global or Dual-region bucket provides it only in the region of the
-  write, so do not enable epoch GC on one when fleet nodes are in more than one
-  region.
+<a id="what-the-bucket-must-provide"></a>
 
-The qualified stores are Amazon S3, Cloudflare R2, Tigris, Google Cloud Storage,
-and Azure Blob Storage. The release tests run against R2; the S3 path uses the
-same client and headers. Azure was qualified on 2026-08-18, single-node, under
-an account key, a VM managed identity, and an AKS workload identity. A managed
-identity on Azure App Service or Azure Container Apps does not work; see
-[limitations](limitations.md).
+## 存储桶必须提供的能力
 
-Backblaze B2, Hetzner Object Storage, and DigitalOcean Spaces do not implement
-the required conditional writes, so two nodes can own one cell on them. A store
-that accepts the conditional headers but ignores the condition fails late and
-silently, so run the storage test.
+- 条件创建：对象已存在时，写入必须失败。
+- 条件覆盖：读取后对象发生变化时，写入必须失败。
+- 写后读一致性：成功写入后的读取必须返回该次写入。
+- 范围读取：读取必须返回所请求的字节范围及该范围中的字节。
+- 仅纪元垃圾回收（`CELLD_LTX_RETENTION_SECS`）需要写后列举一致性：成功写入后的列表必须包含写入的对象。Amazon S3、Cloudflare R2、Google Cloud Storage 和 Azure Blob Storage 提供此保证。Tigris Global 或 Dual-region 存储桶仅在写入所在区域提供该保证，因此集群节点跨多个区域时，不要为这类存储桶启用纪元垃圾回收。
 
-MinIO (the community edition) passes the storage test but is not qualified for
-production. RELEASE.2025-09-06T17-38-46Z answers the conditional create of an
-absent object with `NoSuchKey`, so the first deploy fails (denoland/celld#162).
-Use RELEASE.2025-09-07T16-13-09Z or later.
+通过验证的存储服务包括 Amazon S3、Cloudflare R2、Tigris、Google Cloud Storage 和 Azure Blob Storage。发布测试在 R2 上运行；S3 路径使用相同客户端和头部。Azure 于 2026-08-18 在单节点下完成验证，分别使用账户密钥、虚拟机托管身份和 AKS 工作负载身份。Azure App Service 或 Azure Container Apps 的托管身份不可用，详见[限制](limitations.md)。
 
-A `gs://` bucket uses the Cloud Storage XML API with
-`x-goog-if-generation-match` and OAuth credentials, because Cloud Storage does
-not apply `If-Match` to a PUT. For an `az://` bucket, the NAME is the container.
+Backblaze B2、Hetzner Object Storage 和 DigitalOcean Spaces 未实现所需的条件写入，因此在这些服务上可能出现两个节点同时拥有一个单元。存储服务如果接受条件头却忽略条件，会在之后静默失败，因此必须运行存储测试。
 
-## The storage test
+MinIO 社区版通过了存储测试，但尚未获得生产环境验证。RELEASE.2025-09-06T17-38-46Z 对不存在对象的条件创建返回 `NoSuchKey`，导致首次部署失败（denoland/celld#162）。应使用 RELEASE.2025-09-07T16-13-09Z 或更晚版本。
 
-`celld diagnose` sends four conditional writes to the bucket:
+`gs://` 存储桶使用 Cloud Storage XML API、`x-goog-if-generation-match` 和 OAuth 凭据，因为 Cloud Storage 不对 PUT 应用 `If-Match`。`az://` 存储桶中的 NAME 是容器名称。
+
+<a id="the-storage-test"></a>
+
+## 存储测试
+
+`celld diagnose` 向存储桶发送四次条件写入：
 
 ```
 ok bucket conditional write (create, reject-create, update, reject-stale)
 ```
 
-Two of the four must fail; if the store accepts either, the command exits with
-an error that names the store. Use `celld diagnose --read-only` with a
-credential that cannot write.
+其中两次必须失败。如果存储服务接受了任意一次本应失败的写入，命令会报错退出，并指出该服务。凭据没有写权限时，请使用 `celld diagnose --read-only`。
 
-Each node runs the same writes before it serves, then reads a range of a second
-object and verifies the range and bytes. A node cannot disable this test. It
-makes at most three attempts, with new objects, when an operation fails without
-a clear cause; then the node starts with a warning, because a temporary outage
-can end. The node stops immediately when a required conditional write or ranged
-read is unsupported, when the store ignores a condition or the `Range` header,
-or when it returns a wrong range or wrong bytes.
+每个节点在提供服务前都会执行相同写入，再读取第二个对象的一段范围并验证范围与字节。节点不能禁用此测试。操作因原因不明确而失败时，最多用新对象尝试三次，之后节点带警告启动，因为临时故障可能恢复。如果所需条件写入或范围读取不受支持、存储服务忽略条件或 `Range` 头，或返回错误范围或字节，节点会立即停止。
 
-A process that stops mid-test can leave a small object under `probe/`; celld
-never reads it.
+进程在测试中途停止时，可能在 `probe/` 下留下小对象；celld 不会读取它。
 
-celld reserves `probe/`, `cells/`, `nodes/`, `node-cells/`, `fleet/`, `deploy/`,
-`deploy-blobs/`, `log/`, `wake/`, and `telemetry/`, and deletes objects under
-some of them. An application must not write under any of them.
+celld 保留 `probe/`、`cells/`、`nodes/`、`node-cells/`、`fleet/`、`deploy/`、`deploy-blobs/`、`log/`、`wake/` 和 `telemetry/`，并会删除其中部分前缀下的对象。应用不能在这些前缀下写入。
 
-## The supervisor
+<a id="the-supervisor"></a>
 
-Run celld under a supervisor that restarts the process, such as systemd, Docker
-with a restart policy, or Kubernetes. A node that loses its lease fences itself
-and exits, and without a restart the fleet loses that capacity. The supervisor
-must restart without an attempt limit and wait at least one lease lifetime
-between attempts.
+## 进程监管
 
-## The mechanism
+应通过能重启进程的监管程序运行 celld，例如 systemd、带重启策略的 Docker 或 Kubernetes。节点失去租约后会自行隔离并退出，没有重启机制时，集群会失去这部分容量。监管程序必须不限制重启尝试次数，并在两次尝试之间至少等待一个租约生命周期。
 
-### The ownership record
+<a id="the-mechanism"></a>
 
-Each cell has one ownership record in the bucket. It names the owner node's
-session and carries a fencing epoch. A node acquires a cell with a conditional
-create when no record exists, or a compare-and-swap on an existing record, so
-two nodes cannot acquire the same cell. Every activation, a takeover or a local
-wake, advances the epoch, so an epoch never has two writers.
+## 实现机制
 
-### The epoch prefix
+<a id="the-ownership-record"></a>
 
-The replicator copies each cell's SQLite data to `cells/<cell>/ltx/e<epoch>/`
-with unconditional PUTs. The epoch in the key is the fence: a node that lost
-ownership can keep writing, but only into a superseded prefix, and a restore
-selects the current lineage. The tiering path can first combine segments from
-many cells into a node bundle and drain each segment into its per-cell prefix
-later. A bundle is deleted only when the per-cell prefixes cover every segment
-in it. A failed compaction retries after 30 seconds, backing off to at most 300
-seconds.
+### 所有权记录
 
-### The acknowledgement rule (RPO=0)
+每个单元在存储桶中都有一条所有权记录，包含拥有者节点的会话和隔离纪元。记录不存在时，节点通过条件创建获取单元；记录已存在时，通过比较并交换获取，因此两个节点不能同时获取同一个单元。每次激活，无论是接管还是本地唤醒，都会推进纪元，因此一个纪元永远不会有两个写入者。
 
-A gate holds each response until a durability proof covers every write it can
-reveal: a write response; a read-only response when the object has an uncovered
-committed write; an error response, because a thrown message can carry a value
-the handler read; an R2 mutation, so it cannot change the application bucket
-before the source write is durable; a raw TCP connect, write, TLS upgrade, or
-shutdown; and each chunk of a streamed body. A client therefore cannot act on a
-value that a crash can still lose.
+<a id="the-epoch-prefix"></a>
 
-After a bucket proof, celld reads the ownership record once and acknowledges
-only if it still names this node at this epoch. A partitioned node can commit
-locally and replicate into its superseded prefix, but it does not acknowledge.
-The check reads the record instead of a clock, so a paused process or a skewed
-clock cannot pass it.
+### 纪元前缀
 
-A fleet proof needs no such read. The owner sends each write to one or two other
-nodes, its followers (together, the ensemble), and every follower must fsync it.
-A takeover seals the prior node-log session before it restores, so a stale owner
-cannot complete another fleet proof.
+复制器通过无条件 PUT，将各单元的 SQLite 数据复制到 `cells/<cell>/ltx/e<epoch>/`。键中的纪元就是隔离屏障：失去所有权的节点可以继续写入，但只能写入被取代的前缀，恢复过程则选择当前的数据谱系。分层路径可以先将多个单元的段合并到节点日志包中，再将每个段转存到各单元的前缀。只有单元前缀覆盖包内所有段时，日志包才会删除。合并失败后先等待 30 秒重试，再逐步退避到最多 300 秒。
 
-An unfinished SQL write cursor can return rows before SQLite commits. Outside an
-explicit transaction, the application must consume those rows before output or
-`storage.sync()`; celld rejects output while a write cursor is unfinished.
+<a id="the-acknowledgement-rule-rpo0"></a>
 
-### The ensemble needs two nodes
+### 确认规则（RPO=0）
 
-A node never counts itself as a follower, and one follower is enough, therefore
-a fleet needs two running celld nodes before any node can complete a fleet
-proof. `CELLD_DURABILITY=fleet` is the default, so a one-node fleet requests the
-fleet posture and does not get it.
+门控会暂扣每个响应，直到持久性证明覆盖它可能暴露的所有写入：写入响应；对象有已提交但尚未覆盖的写入时的只读响应；错误响应，因为抛出的消息可能包含处理函数读到的值；R2 修改，以免源写入持久化之前改变应用存储桶；原始 TCP 连接、写入、TLS 升级或关闭；以及流式响应体的每个分块。因此，客户端无法基于崩溃仍可能丢失的值采取行动。
 
-A node recruits up to two followers, so a fleet of three or more nodes holds
-three copies of an acknowledged write. The ensemble keeps acknowledging while
-one follower remains. A node with one follower recruits a second one when
-another node becomes available. Until then, a write that is not yet in the
-bucket is only on the owner and on that one follower.
+完成存储桶证明后，celld 读取一次所有权记录，只有它仍指向当前节点及当前纪元时才确认。网络分区中的节点可以本地提交并复制到已被取代的前缀，但不会确认。检查依赖记录而不是时钟，因此暂停的进程或偏差时钟无法绕过检查。
 
-A node without an ensemble stays correct. It acknowledges each write on a bucket
-proof instead, at the cost of latency: an object store round trip is much slower
-than a follower fsync.
+集群证明不需要这次读取。拥有者将每次写入发送给另外一个或两个节点，即跟随节点；拥有者和跟随节点共同组成复制组，每个跟随节点都必须执行 fsync。接管在恢复前封存先前的节点日志会话，因此旧拥有者无法再完成新的集群证明。
 
-### The takeover recovery gate
+未完成的 SQL 写游标可能在 SQLite 提交前返回行。在显式事务之外，应用必须在输出或 `storage.sync()` 前消费这些行；写游标未完成时，celld 拒绝输出。
 
-In fleet mode, celld can acknowledge a write before its bucket upload completes.
-Each process session therefore creates a conditional node-log record before its
-first fleet-durable acknowledgement.
+<a id="the-ensemble-needs-two-nodes"></a>
 
-A cold activation checks the prior owner's log records before it reads the
-bucket. An absent record proves that the session never acknowledged past the
-bucket; a sealed record proves that recovery completed. An open or recovering
-record forces recovery before the restore: compare-and-swap the record to fence
-it, seal the reachable followers, upload their retained segments and bundles
-into the per-cell prefixes, and mark the record sealed.
+### 复制组至少需要两个节点
 
-A cell can stop while its node session stays open; its next activation gathers
-any acknowledged tail outside its per-cell prefix. Once the log epoch is
-active (before its first fleet proof), at least one current follower must
-return its complete retained range, or the activation fails and keeps the
-recovery requirement.
+节点从不将自己计为跟随节点，而一个跟随节点就足够，因此集群至少需要两个正在运行的 celld 节点，才可能完成集群证明。`CELLD_DURABILITY=fleet` 是默认值，因此单节点集群虽然请求集群持久化模式，实际却无法获得该模式。
 
-Recovery has these limits:
+一个节点最多招募两个跟随节点，因此三个或更多节点的集群会保留已确认写入的三份副本。只要还剩一个跟随节点，复制组就能继续确认。只有一个跟随节点的节点，会在其他节点可用时招募第二个。在此之前，尚未进入存储桶的写入只存在于拥有者和那个跟随节点上。
 
-- A follower's HTTP error does not prove its data is absent, even when its
-  lease has expired, so persistent errors can block recovery and startup.
-- A restarted follower cannot certify a range with a damaged batch or a gap
-  until valid data covers it.
-- An older node's entries-only tail (`CLT1`) proves neither completeness nor
-  loss, so recovery or startup can stall during a mixed-version update.
-- A deleted final batch is undetectable if no later batch or persisted end
-  records its range.
-- A torn batch with an unacknowledged write looks like damage after an
-  acknowledgement, so the loss record can report an uncertified range when no
-  acknowledged write is missing.
+没有复制组的节点仍然保持正确性，只是改用存储桶证明确认每次写入，代价是延迟：对象存储的一次往返远慢于跟随节点的 fsync。
 
-A restarting node serves authenticated follower seal and tail requests before
-its own predecessor recovery completes, so nodes that restart together can
-recover acknowledged writes from surviving follower disks. It accepts
-application requests and new follower appends only after startup completes.
+<a id="the-takeover-recovery-gate"></a>
 
-Recovery of a large dead node can take minutes. It reads retained bundles in
-windows of at most 512 MiB and uploads and releases each window before the next,
-so memory does not grow with the session; a cell with rows in several windows
-receives one object per window. A failed or timed-out attempt does not fail
-waiting requests: the cell retries with a backoff (`CELLD_RECOVERY_RETRY_MS`,
-default 1000), and the requests fail with a resolve error only after
-`CELLD_RECOVERY_RETRIES` (default 240) attempts.
+### 接管恢复门控
 
-### Epoch-chain restore
+在集群模式下，celld 可以在存储桶上传完成前确认写入。因此，每个进程会话在首次作出集群持久化确认之前，都会条件创建节点日志记录。
 
-A restore chains the epoch prefixes that contain LTX data, from the newest down
-to an epoch that opened with a whole-database snapshot. An epoch that paged in
-continues its predecessor from the cut it paged from, and a predecessor that
-does not end exactly at that cut is not part of the chain. A legacy
-`e<epoch>.seal.json` object does not limit the chain.
+冷激活在读取存储桶前，会检查先前拥有者的日志记录。记录缺席证明该会话从未确认尚未进入存储桶的写入；已封存记录证明恢复完成。开放或恢复中的记录会强制先恢复、再还原：比较并交换记录以隔离旧会话，封存可访问的跟随节点，将其保留的段和日志包上传到各单元前缀，并将记录标记为已封存。
 
-A paged cell reads no chain up front. It opens over a sparse local file, reads
-each page from the objects on first use, and fills the rest in the background; a
-filled cell reads only its local file. A chain smaller than
-`CELLD_LTX_PAGED_MIN_MB` is downloaded whole.
+单元可能在其节点会话仍开放时停止；下次激活会收集单元前缀之外所有已确认的尾部数据。日志纪元一旦激活（发生在首次集群证明之前），至少一个当前跟随节点必须返回其完整保留范围，否则激活失败，并继续保留恢复要求。
 
-### Epoch GC
+恢复具有以下限制：
 
-When `CELLD_LTX_RETENTION_SECS` is positive, the owner of a cell deletes the
-epoch prefixes that no restore reads, in both `CELLD_DURABILITY` modes:
+- 跟随节点的 HTTP 错误不能证明其数据缺席，即使租约已经过期也是如此，因此持续错误可能阻塞恢复和启动。
+- 重启后的跟随节点，如果某个范围包含损坏批次或缺口，在有效数据覆盖之前无法证明该范围完整。
+- 旧节点只包含条目的尾部格式（`CLT1`）既不能证明完整，也不能证明丢失，因此混合版本升级期间，恢复或启动可能停滞。
+- 如果没有后续批次或持久化的结束记录保存最终批次的范围，那么最终批次被删除时无法检测到。
+- 含未确认写入的撕裂批次，看起来与确认后发生的损坏相同，因此即使没有已确认写入丢失，丢失记录也可能报告某个范围无法认证。
 
-1. It builds the chain over every epoch prefix and continues only when the
-   newest epoch is its own. Its first object is then in the listing, so a later
-   owner restores from a base at the same epoch or higher.
-2. A paged cell waits until its local file is complete.
-3. It continues only when the ownership record names this node at this epoch.
-4. It writes `retired.json` with the base and deletes the prefixes below it,
-   keeping its own epoch, the one before, and each epoch younger than the
-   configured time.
+重启中的节点在自身前任恢复完成前，就会响应经过认证的跟随节点封存和尾部请求，因此同时重启的节点可以从仍存活的跟随节点磁盘恢复已确认写入。只有启动完成后，节点才接受应用请求和新的跟随日志追加。
 
-The order matters: otherwise a fenced owner could delete its successor's base.
-A late delete is safe because an epoch below the base never rejoins a chain.
-This relies on list-after-write consistency.
+大型故障节点的恢复可能需要数分钟。恢复按最多 512 MiB 的窗口读取保留日志包，每个窗口上传并释放后才读取下一个，因此内存不会随会话大小增长。某个单元的行跨多个窗口时，每个窗口都会为它生成一个对象。失败或超时的尝试不会立即使等待中的请求失败：单元会退避重试（`CELLD_RECOVERY_RETRY_MS`，默认 1000），只有达到 `CELLD_RECOVERY_RETRIES`（默认 240）次尝试后，请求才会以解析错误失败。
 
-A fenced node can append an unacknowledged tail to an older prefix. After a
-snapshot successor, a later restore can expose that tail; this does not violate
-the contract, because a missing acknowledgement does not prove a write absent.
-After a paged successor, the chain clips the older prefix at the cut, and the
-takeover recovery gate seals the prior node-log session before the successor
-restores, so no write past the cut can be acknowledged.
+<a id="epoch-chain-restore"></a>
 
-### Self-fencing
+### 纪元链恢复
 
-Each node holds a lease in the bucket with an expiry, renewed after one third of
-the lifetime (`CELLD_TTL_MS`, default 10000 ms). A failed renewal is retried
-while the published expiry has not passed.
+恢复从最新的包含 LTX 数据的纪元前缀向前串联，直到一个以完整数据库快照开始的纪元。按需分页恢复的纪元，从分页时的截点继续其前任历史；如果前任没有恰好在该截点结束，就不属于这条链。旧的 `e<epoch>.seal.json` 对象不限制恢复链。
 
-When the expiry passes, the node fences itself: it stops each active cell and
-fails every incomplete request. It also fences at once when its lease record is
-gone or no longer matches what it published. The fence writes nothing; peers
-already read the lease as dead or replaced and acquire the cells through the
-ownership records. celld checks the published expiry on every routed request,
-so a request is safe even before the fence runs.
+分页单元不会预先读取整条链。它在稀疏本地文件上打开数据库，首次使用每个页面时从对象中读取，其余页面在后台填充；填充完成后只读取本地文件。小于 `CELLD_LTX_PAGED_MIN_MB` 的链会完整下载。
 
-An ingress checks a cached remote route against the observed lease deadline on
-each new request and rereads ownership at the deadline, even if the old owner
-holds connections open. Recovery still needs the bucket and the required durable
-data. A draining ingress can forward to a live remote owner but refuses new
-ownership of an unowned cell or one with an expired owner. The ingress does not
-replay a request already sent to the old owner, because the handler can have
-committed a write; the caller can cancel it.
+<a id="epoch-gc"></a>
 
-A fenced node logs a line starting with `SELF-FENCE:` and exits with code 3.
-Other internal failures share the prefix and code; the line names the cause:
-`node_lease_watchdog_fence` (expired), `node_lease_record_missing_fence`, or
-`node_lease_record_mismatch_fence` (which names no author, because the node
-cannot prove who wrote the record). The fenced state is terminal: only a restart
-returns the node, through the normal cold-activation path. The
-[testing page](testing.md) shows the kill tests for this path.
+### 纪元垃圾回收
 
-`RUST_LOG=celld=info,store=debug` logs a `node_lease_read` or `node_lease_write`
-event for each store request against the node's own lease record, with an
-`outcome` of `found`, `missing`, `applied`, `rejected`, or `error`. An `error`
-carries the store failure in an `error` field; a `found` carries the record's
-`generation`. The target costs nothing at other filters.
+`CELLD_LTX_RETENTION_SECS` 为正值时，单元拥有者会删除任何恢复都不再读取的纪元前缀，两种 `CELLD_DURABILITY` 模式均适用：
 
-## Alarm discovery and the wake format
+1. 基于全部纪元前缀构建恢复链，只有最新纪元是自己的纪元时才继续。此时自己的第一个对象已经出现在列表中，因此后续拥有者会从同一纪元或更高纪元的基底恢复。
+2. 分页单元等待本地文件填充完整。
+3. 只有所有权记录仍指向当前节点和当前纪元时才继续。
+4. 写入包含恢复基底的 `retired.json`，删除基底以下的前缀，但保留自己的纪元、前一个纪元，以及年龄小于配置时长的所有纪元。
 
-SQLite stores the alarm deadline, consumption, retry state, and installation
-identity. An alarm hint only makes celld read SQLite; it never authorizes a
-handler to run.
+顺序至关重要，否则被隔离的拥有者可能删除继任者的恢复基底。延迟删除是安全的，因为低于基底的纪元永远不会重新进入恢复链。这依赖写后列举一致性。
 
-Each committed installation has an object under `wake/entries/`, identified by
-the ownership epoch and a persistent SQLite sequence. An alarm response waits
-for its publication PUT and the output proof; an update within the same minute
-also needs a new PUT.
+被隔离节点可能向旧前缀追加未确认尾部数据。继任者通过快照启动后，后续恢复可能暴露这些数据；这不违反契约，因为未收到确认并不能证明写入不存在。如果继任者按需分页，恢复链会在截点裁剪旧前缀，而接管恢复门控会在继任者恢复前封存旧节点日志会话，因此截点之后的写入无法再被确认。
 
-Cleanup publishes a retirement record under `wake/retired/` with conditional
-writes. The record needs a durability proof, a current owner, and, if an alarm
-remains armed, a confirmed replacement publication. Cleanup deletes only older
-identities or a proven consumed one, so an old DELETE cannot remove a later
-installation and the bucket needs no conditional DELETE. Deletes of obsolete
-publications do not block an alarm response.
+<a id="self-fencing"></a>
 
-Each cleanup pass lists at most 128 objects and processes at most eight cells
-concurrently, continuing the listing on the next pass and restarting after the
-last page. A failed DELETE or a late PUT can need another full scan. The
-interval defaults to 60 seconds; `CELLD_WAKER_TICK_MS` sets it and the due-scan
-interval. A large inventory can take many intervals, and each extra node can
-repeat the same reads and deletes.
+### 自我隔离
 
-`wake/format.json` selects format 2; `wake/waker.json` holds the advisory lease
-for the waker role. A new node initializes an empty fleet or upgrades a stopped
-v0.4.1 fleet automatically. An unsupported format, or the old
-`wake-format.json`, `wake-v2/`, or `wake-retired-v2/` names, prevents startup.
-Application objects outside the reserved namespaces do not.
+每个节点在存储桶中持有带到期时间的租约，在生命周期的三分之一处续期（`CELLD_TTL_MS`，默认 10000 ms）。只要已公布的到期时间尚未到达，失败的续期就会重试。
 
-### Start a fleet with this format
+到期后，节点会自行隔离：停止每个活跃单元，使所有未完成请求失败。租约记录消失，或不再匹配自己公布的记录时，也会立即隔离。隔离过程不写入任何内容；其他节点已经将租约视为失效或被替换，并通过所有权记录获取单元。celld 对每个路由请求检查已公布的到期时间，因此即使隔离流程尚未运行，请求仍然安全。
 
-An empty fleet initializes this format automatically. An upgrade from v0.4.1
-keeps the bucket and node data directories but needs a stopped fleet, because
-v0.4.1 cannot read the new discovery entries.
+入口对每个新请求，依据观察到的租约截止时间检查缓存的远程路由；到期后重新读取所有权，即使旧拥有者仍保持连接也是如此。恢复仍需要存储桶及必要的持久化数据。排空中的入口可以转发给存活的远程拥有者，但拒绝新获取无主单元或拥有者已过期的单元。入口不会重放已经发给旧拥有者的请求，因为处理函数可能已经提交写入；调用者可以取消请求。
 
-1. Stop application traffic and deployment writers. Stop every old node and its
-   supervisor, then wait for every node lease to expire.
-2. Back up the bucket and node data. Keep the node names, peer addresses, and
-   data directories. A follower disk can hold acknowledged writes that the
-   bucket does not yet hold.
-3. Prevent the old binaries from restarting or writing to the bucket: revoke
-   their credentials or access. The format marker cannot stop them.
-4. Start the new binary on every node with the same configuration, data, and
-   addresses. Wait for the fleet to become healthy, then resume traffic.
+被隔离节点记录以 `SELF-FENCE:` 开头的日志，并以退出码 3 退出。其他内部失败也使用同一前缀和退出码；日志会注明原因：`node_lease_watchdog_fence`（过期）、`node_lease_record_missing_fence`，或 `node_lease_record_mismatch_fence`（不会指出写入者，因为节点无法证明是谁写了记录）。隔离状态不可恢复，只有重启才能通过正常冷激活路径让节点返回。[测试页面](testing.md)介绍了该路径的强制终止测试。
 
-The nodes can start together. A live node lease blocks the migration, and the
-operator must keep old writers from returning.
+`RUST_LOG=celld=info,store=debug` 会为针对节点自身租约记录的每次存储请求记录 `node_lease_read` 或 `node_lease_write` 事件，`outcome` 为 `found`、`missing`、`applied`、`rejected` 或 `error`。`error` 会在 `error` 字段携带存储失败，`found` 会携带记录的 `generation`。使用其他日志过滤条件时，此日志目标没有开销。
 
-The migration preserves databases, node logs, ownership records, deployments,
-and application objects. It creates a discovery seed for each stored cell, in
-pages of at most 128 entries. A seed makes recovery derive the installation
-identity from SQLite without changing the deadline or retry state, and it is
-removed only after durable recovery, so an interrupted migration cannot discard
-an alarm. Recovery can load cells with future alarms while it processes seeds.
+<a id="alarm-discovery-and-the-wake-format"></a>
 
-If a node stops mid-migration, another starting node resumes it. No node serves
-until the full inventory succeeds, so alarms can run late. Later starts do not
-migrate again.
+## 闹钟发现与唤醒格式
 
-To roll back, restore the full stopped-fleet backup; never start an old binary
-against the upgraded fleet. The restore loses writes made after the backup, so
-preserve those separately.
+SQLite 保存闹钟截止时间、消费状态、重试状态和安装标识。闹钟提示只会让 celld 读取 SQLite，绝不会直接授权处理函数运行。
 
-Restarts and ownership transfers preserve alarm history. Each restored writer
-takes a new epoch and keeps the stored sequence and consumed state, so an old
-mutation cannot target a later installation.
+每次已提交的安装都会在 `wake/entries/` 下产生一个对象，以所有权纪元和 SQLite 中持久化的序列号标识。闹钟响应必须等待该对象发布的 PUT 和输出证明；同一分钟内更新也需要新的 PUT。
+
+清理通过条件写入，在 `wake/retired/` 下发布退役记录。记录需要持久性证明、当前拥有者；如果仍有已设置的闹钟，还需要确认替代条目已经发布。清理只删除更旧的标识或已证明消费完成的标识，因此旧 DELETE 无法移除后来的安装，存储桶也不需要条件 DELETE。删除过时的发布条目不会阻塞闹钟响应。
+
+每轮清理最多列举 128 个对象，同时最多处理八个单元；下一轮继续列举，最后一页之后重新开始。DELETE 失败或 PUT 延迟完成可能需要再进行一次完整扫描。间隔默认 60 秒，`CELLD_WAKER_TICK_MS` 同时设置它和到期扫描间隔。清单较大时可能需要多个间隔，每增加一个节点都可能重复相同的读取和删除。
+
+`wake/format.json` 选择格式 2，`wake/waker.json` 保存唤醒者角色的建议性租约。新节点会自动初始化空集群，或升级已停止的 v0.4.1 集群。不支持的格式，或旧名称 `wake-format.json`、`wake-v2/`、`wake-retired-v2/`，会阻止启动。保留命名空间以外的应用对象不会阻止启动。
+
+<a id="start-a-fleet-with-this-format"></a>
+
+### 使用此格式启动集群
+
+空集群会自动初始化此格式。从 v0.4.1 升级会保留存储桶和节点数据目录，但必须先停止集群，因为 v0.4.1 无法读取新的发现条目。
+
+1. 停止应用流量和部署写入者。停止所有旧节点及其监管程序，再等待所有节点租约过期。
+2. 备份存储桶和节点数据。保留节点名、节点间地址和数据目录。跟随节点磁盘可能包含尚未进入存储桶的已确认写入。
+3. 阻止旧二进制重新启动或写入存储桶：撤销其凭据或访问权限。格式标记无法阻止旧程序。
+4. 在每个节点上使用相同配置、数据和地址启动新二进制。等待集群健康后，再恢复流量。
+
+节点可以同时启动。存活的节点租约会阻止迁移，运维者必须防止旧写入者返回。
+
+迁移保留数据库、节点日志、所有权记录、部署和应用对象，并为每个已存储单元创建发现种子，每页最多 128 项。种子让恢复从 SQLite 派生安装标识，而不改变截止时间或重试状态；只有持久化恢复完成后才删除，因此迁移中断不会丢失闹钟。处理种子时，恢复可能会加载具有未来闹钟的单元。
+
+节点在迁移中途停止时，另一个启动中的节点会继续迁移。在完整清单处理成功前，所有节点都不会提供服务，因此闹钟可能延迟触发。后续启动不会再次迁移。
+
+回滚时必须恢复完整的已停机集群备份，绝不能让旧二进制访问升级后的集群。恢复会丢失备份之后的写入，因此应另行保留这些数据。
+
+重启和所有权转移都会保留闹钟历史。每个恢复的写入者获得新纪元，并保留已存储的序列号和消费状态，因此旧修改无法作用于后来的安装。

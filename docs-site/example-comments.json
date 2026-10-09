@@ -1,0 +1,14 @@
+{
+  "// The code of the facet. A real application would load it from a bundle,": "// facet 的代码。实际应用可以从打包文件、数据库或请求中加载；",
+  "// a database, or a request; here it is a string so the example is one file.": "// 这里用字符串保存，让整个示例位于同一个文件中。",
+  "# A tiny HTTP server: every response reports the container's hostname, the": "# 一个小型 HTTP 服务器：每次响应都返回容器主机名、请求路径，",
+  "# request path, and the MESSAGE environment variable the object passed in.": "# 以及对象传入的 MESSAGE 环境变量。",
+  "# The process is PID 1 in the container, and PID 1 ignores a signal it has": "# 该进程在容器中为 PID 1，会忽略没有注册处理函数的信号。",
+  "# no handler for. The object's stop() sends SIGTERM, so exit on it.": "# 对象的 stop() 会发送 SIGTERM，因此收到该信号时应退出。",
+  "// One container per path: each name is its own object and process.": "// 每条路径对应一个容器，每个名称都有独立的对象和进程。",
+  "// Spread requests over three containers.": "// 将请求分散到三个容器。",
+  "// A completed step returns its stored result when the Workflow resumes.": "// 工作流恢复时，已完成步骤直接返回存储的结果。",
+  "# POST an HTML page to /summarize to get its title and links. The summary is": "# 向 /summarize POST 一个 HTML 页面，获取标题和链接。摘要使用页面的",
+  "# kept in KV under the page's SHA-256, and GET /summary/<sha256> reads it back.": "# SHA-256 作为键保存在 KV 中，GET /summary/<sha256> 可以读取。",
+  "# This table keeps the example outside the engine workspace.": "# 此配置表使示例独立于引擎工作区。"
+}

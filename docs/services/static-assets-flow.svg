@@ -1,21 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 456 690" role="img" aria-labelledby="assetsFlowTitle assetsFlowDesc">
-  <title id="assetsFlowTitle">How celld decides between an asset and the Worker</title>
-  <desc id="assetsFlowDesc">A request reaches a node and passes down a column of tests. A method other
-than GET or HEAD leaves at once and the Worker answers. A path that
-run_worker_first matches also leaves, and no asset lookup happens. The
-_redirects rules run next, in file order, and the first match wins: status 301,
-302, 303, 307, or 308 gives a Location header with no body, and status 200
-restarts routing at the destination path. html_handling then looks for a file:
-the exact path gives 200 with the body, and another spelling gives 307 to the
-canonical path. After a miss the node re-reads the deployment pointer, at most
-once in five seconds, so a newer deployment can still answer. not_found_handling
-fabricates the last answer, but only for a navigation request or for a
-deployment with no Worker: single-page-application returns /index.html with 200,
-and 404-page returns the nearest 404.html with 404. When nothing matches the
-Worker answers, and a deployment with no Worker answers 404. A green outcome
-comes from the asset layer and a grey outcome comes from the Worker. Separately,
-a missing or corrupt asset body gives 502 and never falls through to the
-Worker.</desc>
+  <title id="assetsFlowTitle">celld 如何在静态资源与 Worker 之间选择</title>
+  <desc id="assetsFlowDesc">请求依次检查方法、run_worker_first、_redirects、html_handling、未命中后的指针刷新和 not_found_handling。非 GET 或 HEAD，以及匹配 Worker 优先规则的请求，直接交给 Worker。重定向取首个匹配，200 规则在目标路径重新路由。HTML 查找命中返回 200，非规范路径返回 307。未命中后每五秒最多刷新一次部署指针。导航请求或无 Worker 时，单页应用回退到 index.html，404-page 返回最近的 404.html。最终没有匹配项则由 Worker 响应，无 Worker 时返回 404。绿色表示静态资源层，灰色表示 Worker。资源内容缺失或损坏返回 502，不会回退到 Worker。</desc>
   <style>
     /* GitHub renders this file as an image, so the diagram carries literal
        colours here. The site rules in landing/src/style.css are more specific,
@@ -58,19 +43,19 @@ Worker.</desc>
   <!-- One request enters the column of tests. -->
   <rect class="d-panel" x="8" y="8" width="228" height="32" fill="currentColor" />
   <rect class="d-ink" x="8" y="8" width="228" height="32" fill="none" stroke="currentColor" stroke-width="1" />
-  <text class="d-ink" x="122" y="28.5" fill="currentColor" text-anchor="middle">One request reaches a node</text>
-  <text class="d-faint sm" x="358" y="29" fill="currentColor" text-anchor="middle">who answers, and with what</text>
+  <text class="d-ink" x="122" y="28.5" fill="currentColor" text-anchor="middle">请求到达节点</text>
+  <text class="d-faint sm" x="358" y="29" fill="currentColor" text-anchor="middle">响应方与响应内容</text>
 
   <path class="d-acc" d="M122 40 V61" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow)" />
 
   <!-- The method test: only GET and HEAD can reach an asset. -->
   <rect class="d-panel" x="8" y="62" width="228" height="40" fill="currentColor" />
   <rect class="d-faint" x="8" y="62" width="228" height="40" fill="none" stroke="currentColor" />
-  <text class="d-ink" x="20" y="86.5" fill="currentColor">Method other than GET or HEAD</text>
+  <text class="d-ink" x="20" y="86.5" fill="currentColor">方法不是 GET 或 HEAD</text>
   <path class="d-acc" d="M236 82 H267" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow)" />
   <rect class="d-sunk" x="268" y="62" width="180" height="40" fill="currentColor" />
   <rect class="d-soft" x="268" y="62" width="180" height="40" fill="none" stroke="currentColor" />
-  <text class="d-ink sm" x="278" y="86" fill="currentColor">the Worker answers</text>
+  <text class="d-ink sm" x="278" y="86" fill="currentColor">由 Worker 响应</text>
 
   <path class="d-acc" d="M122 102 V123" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow)" />
 
@@ -78,12 +63,12 @@ Worker.</desc>
   <rect class="d-panel" x="8" y="124" width="228" height="40" fill="currentColor" />
   <rect class="d-faint" x="8" y="124" width="228" height="40" fill="none" stroke="currentColor" />
   <text class="d-ink mono" x="20" y="141" fill="currentColor">run_worker_first</text>
-  <text class="d-faint sm" x="20" y="155" fill="currentColor">true, or up to 100 patterns</text>
+  <text class="d-faint sm" x="20" y="155" fill="currentColor">true，或最多 100 个模式</text>
   <path class="d-acc" d="M236 144 H267" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow)" />
   <rect class="d-sunk" x="268" y="124" width="180" height="40" fill="currentColor" />
   <rect class="d-soft" x="268" y="124" width="180" height="40" fill="none" stroke="currentColor" />
-  <text class="d-ink sm" x="278" y="141" fill="currentColor">the Worker answers</text>
-  <text class="d-faint sm" x="278" y="155" fill="currentColor">no asset lookup at all</text>
+  <text class="d-ink sm" x="278" y="141" fill="currentColor">由 Worker 响应</text>
+  <text class="d-faint sm" x="278" y="155" fill="currentColor">不查找静态资源</text>
 
   <path class="d-acc" d="M122 164 V185" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow)" />
 
@@ -91,7 +76,7 @@ Worker.</desc>
   <rect class="d-panel" x="8" y="186" width="228" height="80" fill="currentColor" />
   <rect class="d-faint" x="8" y="186" width="228" height="80" fill="none" stroke="currentColor" />
   <text class="d-ink mono" x="20" y="223" fill="currentColor">_redirects</text>
-  <text class="d-faint sm" x="20" y="237" fill="currentColor">file order, first match wins</text>
+  <text class="d-faint sm" x="20" y="237" fill="currentColor">按文件顺序，首个匹配生效</text>
   <g class="d-acc" fill="none" stroke="currentColor" stroke-width="1">
     <path d="M236 226 H252" />
     <path d="M252 204 V248" />
@@ -101,11 +86,11 @@ Worker.</desc>
   <rect class="d-tint" x="268" y="186" width="180" height="36" fill="currentColor" />
   <rect class="d-acc" x="268" y="186" width="180" height="36" fill="none" stroke="currentColor" />
   <text class="d-ink sm" x="278" y="201" fill="currentColor">301 302 303 307 308</text>
-  <text class="d-faint sm" x="278" y="215" fill="currentColor">a Location, no body</text>
+  <text class="d-faint sm" x="278" y="215" fill="currentColor">Location 头，无响应体</text>
   <rect class="d-tint" x="268" y="230" width="180" height="36" fill="currentColor" />
   <rect class="d-acc" x="268" y="230" width="180" height="36" fill="none" stroke="currentColor" />
   <text class="d-ink sm" x="278" y="245" fill="currentColor">200</text>
-  <text class="d-faint sm" x="278" y="259" fill="currentColor">restart at the destination</text>
+  <text class="d-faint sm" x="278" y="259" fill="currentColor">在目标路径重新路由</text>
 
   <path class="d-acc" d="M122 266 V303" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow)" />
   <path class="d-acc" d="M284 266 V282 H127" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#sa-arrow-acc)" />
@@ -114,7 +99,7 @@ Worker.</desc>
   <rect class="d-panel" x="8" y="304" width="228" height="80" fill="currentColor" />
   <rect class="d-faint" x="8" y="304" width="228" height="80" fill="none" stroke="currentColor" />
   <text class="d-ink mono" x="20" y="341" fill="currentColor">html_handling</text>
-  <text class="d-faint sm" x="20" y="355" fill="currentColor">auto, force, drop, or none</text>
+  <text class="d-faint sm" x="20" y="355" fill="currentColor">auto、force、drop 或 none</text>
   <g class="d-acc" fill="none" stroke="currentColor" stroke-width="1">
     <path d="M236 344 H252" />
     <path d="M252 322 V366" />
@@ -123,12 +108,12 @@ Worker.</desc>
   </g>
   <rect class="d-tint" x="268" y="304" width="180" height="36" fill="currentColor" />
   <rect class="d-acc" x="268" y="304" width="180" height="36" fill="none" stroke="currentColor" />
-  <text class="d-ink sm" x="278" y="319" fill="currentColor">the canonical path</text>
-  <text class="d-faint sm" x="278" y="333" fill="currentColor">200 with the body</text>
+  <text class="d-ink sm" x="278" y="319" fill="currentColor">规范路径</text>
+  <text class="d-faint sm" x="278" y="333" fill="currentColor">200，附带响应体</text>
   <rect class="d-tint" x="268" y="348" width="180" height="36" fill="currentColor" />
   <rect class="d-acc" x="268" y="348" width="180" height="36" fill="none" stroke="currentColor" />
-  <text class="d-ink sm" x="278" y="363" fill="currentColor">another spelling</text>
-  <text class="d-faint sm" x="278" y="377" fill="currentColor">307 to the canonical path</text>
+  <text class="d-ink sm" x="278" y="363" fill="currentColor">其他路径写法</text>
+  <text class="d-faint sm" x="278" y="377" fill="currentColor">307，重定向到规范路径</text>
 
   <path class="d-acc" d="M122 384 V405" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow)" />
 
@@ -136,13 +121,13 @@ Worker.</desc>
        different indexes, so a miss re-reads the pointer. -->
   <rect class="d-panel" x="8" y="406" width="228" height="44" fill="currentColor" />
   <rect class="d-faint" x="8" y="406" width="228" height="44" fill="none" stroke="currentColor" />
-  <text class="d-ink" x="20" y="425.5" fill="currentColor">Miss: re-read the pointer</text>
-  <text class="d-faint sm" x="20" y="439.5" fill="currentColor">at most once in five seconds</text>
+  <text class="d-ink" x="20" y="425.5" fill="currentColor">未命中：重新读取指针</text>
+  <text class="d-faint sm" x="20" y="439.5" fill="currentColor">每五秒最多一次</text>
   <path class="d-acc" d="M236 428 H267" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow-acc)" />
   <rect class="d-tint" x="268" y="406" width="180" height="44" fill="currentColor" />
   <rect class="d-acc" x="268" y="406" width="180" height="44" fill="none" stroke="currentColor" />
-  <text class="d-ink sm" x="278" y="425" fill="currentColor">a newer deployment has it</text>
-  <text class="d-faint sm" x="278" y="439" fill="currentColor">200 with the body</text>
+  <text class="d-ink sm" x="278" y="425" fill="currentColor">新部署中存在该文件</text>
+  <text class="d-faint sm" x="278" y="439" fill="currentColor">200，附带响应体</text>
 
   <path class="d-acc" d="M122 450 V471" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow)" />
 
@@ -150,7 +135,7 @@ Worker.</desc>
   <rect class="d-panel" x="8" y="472" width="228" height="80" fill="currentColor" />
   <rect class="d-faint" x="8" y="472" width="228" height="80" fill="none" stroke="currentColor" />
   <text class="d-ink mono" x="20" y="509" fill="currentColor">not_found_handling</text>
-  <text class="d-faint sm" x="20" y="523" fill="currentColor">navigation, or no Worker</text>
+  <text class="d-faint sm" x="20" y="523" fill="currentColor">导航请求，或没有 Worker</text>
   <g class="d-acc" fill="none" stroke="currentColor" stroke-width="1">
     <path d="M236 512 H252" />
     <path d="M252 490 V534" />
@@ -164,22 +149,22 @@ Worker.</desc>
   <rect class="d-tint" x="268" y="516" width="180" height="36" fill="currentColor" />
   <rect class="d-acc" x="268" y="516" width="180" height="36" fill="none" stroke="currentColor" />
   <text class="d-ink sm" x="278" y="531" fill="currentColor">404-page</text>
-  <text class="d-faint sm" x="278" y="545" fill="currentColor">the nearest 404.html, 404</text>
+  <text class="d-faint sm" x="278" y="545" fill="currentColor">最近的 404.html，404</text>
 
   <path class="d-acc" d="M122 552 V573" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow)" />
 
   <!-- The asset layer has no answer left. -->
   <rect class="d-panel" x="8" y="574" width="228" height="44" fill="currentColor" />
   <rect class="d-ink" x="8" y="574" width="228" height="44" fill="none" stroke="currentColor" stroke-width="1" />
-  <text class="d-ink" x="20" y="600.5" fill="currentColor">Nothing matched</text>
+  <text class="d-ink" x="20" y="600.5" fill="currentColor">没有匹配项</text>
   <path class="d-acc" d="M236 596 H267" fill="none" stroke="currentColor" stroke-width="1" marker-end="url(#sa-arrow)" />
   <rect class="d-sunk" x="268" y="574" width="180" height="44" fill="currentColor" />
   <rect class="d-soft" x="268" y="574" width="180" height="44" fill="none" stroke="currentColor" />
-  <text class="d-ink sm" x="278" y="593" fill="currentColor">the Worker answers</text>
-  <text class="d-faint sm" x="278" y="607" fill="currentColor">no Worker: 404</text>
+  <text class="d-ink sm" x="278" y="593" fill="currentColor">由 Worker 响应</text>
+  <text class="d-faint sm" x="278" y="607" fill="currentColor">没有 Worker：404</text>
 
   <!-- The one outcome that never reaches the Worker. -->
   <rect class="d-faint" x="8" y="640" width="440" height="42" fill="none" stroke="currentColor" stroke-dasharray="5 4" />
-  <text class="d-ink sm" x="20" y="658" fill="currentColor">A missing or corrupt asset body gives 502.</text>
-  <text class="d-faint sm" x="20" y="672" fill="currentColor">The request never falls through to the Worker.</text>
+  <text class="d-ink sm" x="20" y="658" fill="currentColor">资源内容缺失或损坏时返回 502。</text>
+  <text class="d-faint sm" x="20" y="672" fill="currentColor">请求不会回退到 Worker。</text>
 </svg>

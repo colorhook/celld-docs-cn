@@ -1,7 +1,8 @@
+<a id="webassembly"></a>
+
 # WebAssembly
 
-A Worker bundle can import a `.wasm` file. As in Wrangler, the import gives
-the compiled module, not the bytes.
+Worker 打包文件可以导入 `.wasm` 文件。与 Wrangler 一样，导入结果是已编译的模块，而不是原始字节。
 
 ```js
 import addModule from "./add.wasm";
@@ -15,48 +16,37 @@ export default {
 };
 ```
 
-`celld deploy` uploads each imported wasm file beside the bundle and marks the
-deployment with the `wasm-v1` feature. A node that predates this feature
-refuses the deployment, so a mixed fleet fails at deploy time, not at request
-time.
+`celld deploy` 会将每个导入的 wasm 文件上传到打包文件旁边，并为部署标记 `wasm-v1` 特性。早于该特性的节点会拒绝部署，因此混合版本集群会在部署阶段失败，而不是等到处理请求时才失败。
 
-celld compiles each wasm module once per process, so later isolates and cell
-activations reuse it.
+celld 在每个进程中只编译每个 wasm 模块一次，后续的隔离实例和单元激活都会复用它。
 
-## Example
+<a id="example"></a>
 
-The [WebAssembly example](../examples/wasm) compiles a Rust Durable Object and
-imports its WebAssembly module.
+## 示例
+
+[WebAssembly 示例](../examples/wasm) 编译一个 Rust Durable Object，并导入它的 WebAssembly 模块。
 
 <!-- celld-example: wasm -->
 
-## Prebuilt Workers
+<a id="prebuilt-workers"></a>
 
-With `no_bundle: true`, celld preserves the entry JavaScript byte for byte. It
-applies Wrangler's default `**/*.wasm` and `**/*.wasm?module` patterns below
-the directory that contains `main`. For example, `main: "./dist/shim.mjs"` can
-import `"./add.wasm"` or `"./lib/add.wasm"` from `dist`. The module names keep
-these relative paths. This mode does not require esbuild.
+## 预构建的 Workers
 
-The scan uploads WASM files that the JavaScript does not import, so use a
-dedicated build output directory. It skips `.git`, `.celld`, `.wrangler`, and
-symbolic links to directories. It refuses a symbolic link whose name matches a
-WASM pattern, so copy the file into the build output instead.
+设置 `no_bundle: true` 时，celld 会逐字节保留入口 JavaScript，并在 `main` 所在目录下应用 Wrangler 的默认匹配规则 `**/*.wasm` 和 `**/*.wasm?module`。例如，`main: "./dist/shim.mjs"` 可以从 `dist` 导入 `"./add.wasm"` 或 `"./lib/add.wasm"`，模块名保留这些相对路径。这种模式不需要 esbuild。
 
-celld does not implement the other
-[Wrangler module discovery settings](https://developers.cloudflare.com/workers/wrangler/configuration/#find-additional-modules).
-It does not discover additional JavaScript modules and does not accept
-`rules`, `base_dir`, or `find_additional_modules`. The JavaScript must already
-be bundled, and its WASM imports must be relative to the entry directory.
+扫描也会上传 JavaScript 没有导入的 WASM 文件，因此应使用专门的构建输出目录。扫描会跳过 `.git`、`.celld`、`.wrangler` 和指向目录的符号链接。名称匹配 WASM 规则的符号链接会被拒绝，因此应将文件复制到构建输出目录中。
 
-## Rust with workers-rs
+celld 不实现其他 [Wrangler 模块发现设置](https://developers.cloudflare.com/workers/wrangler/configuration/#find-additional-modules)。它不会发现额外的 JavaScript 模块，也不接受 `rules`、`base_dir` 或 `find_additional_modules`。JavaScript 必须已经完成打包，WASM 导入必须相对于入口目录。
 
-[workers-rs](https://github.com/cloudflare/workers-rs) builds a JavaScript shim
-and a wasm file, and the shim is a normal entry point for `celld deploy`.
+<a id="rust-with-workers-rs"></a>
 
-1. Install the build tool: `cargo install worker-build`.
-2. Build the crate: `worker-build --release`.
-3. Point the config at the shim:
+## 使用 workers-rs 编写 Rust
+
+[workers-rs](https://github.com/cloudflare/workers-rs) 生成 JavaScript 适配文件（shim）和 wasm 文件，该适配文件可作为 `celld deploy` 的普通入口点。
+
+1. 安装构建工具：`cargo install worker-build`。
+2. 构建 crate：`worker-build --release`。
+3. 将配置指向适配文件：
 
 ```jsonc
 {
@@ -66,17 +56,15 @@ and a wasm file, and the shim is a normal entry point for `celld deploy`.
 }
 ```
 
-4. Deploy: `celld deploy`.
+4. 部署：`celld deploy`。
 
-celld resolves entrypoint and Durable Object classes through the shim's Proxy
-wrapper. A workers-rs API that needs a runtime feature missing from
-[Cloudflare compatibility](cloudflare-compat.md) does not work.
+celld 通过适配文件的 Proxy 包装器解析入口点和 Durable Object 类。如果 workers-rs API 依赖的运行时特性不在 [Cloudflare 兼容性](cloudflare-compat.md)支持范围内，该 API 将无法使用。
 
-## Dynamic Workers
+<a id="dynamic-workers"></a>
 
-Pass wasm to a dynamically loaded worker as `{ wasm: bytes }` in the `modules`
-map, and the worker imports a compiled module. celld refuses bare bytes, as
-workerd does.
+## 动态 Workers
+
+在 `modules` 映射中以 `{ wasm: bytes }` 形式将 wasm 传给动态加载的 Worker，Worker 导入时会得到已编译模块。与 workerd 一样，celld 拒绝直接传入裸字节。
 
 ```js
 const worker = env.loader.load({
@@ -89,8 +77,8 @@ const worker = env.loader.load({
 });
 ```
 
-## Limits
+<a id="limits"></a>
 
-Wasm bytes count against the deployment size limits like JavaScript modules. A
-module that does not compile fails the importing module with a
-`WebAssembly.CompileError` that names the file.
+## 限制
+
+与 JavaScript 模块一样，wasm 字节也计入部署大小限制。模块无法编译时，导入它的模块会失败，并抛出包含文件名的 `WebAssembly.CompileError`。

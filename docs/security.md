@@ -1,161 +1,119 @@
-# Security
+<a id="security"></a>
 
-celld v0.6.2 is a beta release. It is not safe for hostile multi-tenant use.
-Only the latest release receives security fixes.
+# 安全
 
-## Security boundary
+celld v0.6.2 是测试版，不适合存在恶意租户的多租户场景。只有最新版本会获得安全修复。
 
-One fleet runs one application. celld trusts the application code, the fleet
-nodes, and the operators. Application code can use its configured bindings and
-can consume shared node resources. Do not run code from mutually distrusting
-tenants in one fleet.
+<a id="security-boundary"></a>
 
-Application code cannot reach the engine's host functions. An internal script
-receives them as function parameters, and `globalThis` carries no
-`__`-prefixed property. A Worker Loader worker with `globalOutbound: null`
-therefore reaches the host only through the capabilities in its `env`.
+## 安全边界
 
-celld depends on two external boundaries: a trusted private network protects
-the internal listener, and object storage credentials control the fleet.
+一个集群运行一个应用。celld 信任应用代码、集群节点和运维者。应用代码可以使用已配置的绑定，并消耗节点共享资源。不要在同一集群中运行来自彼此不信任租户的代码。
 
-## Separate the listeners
+应用代码无法访问引擎的宿主函数。内部脚本通过函数参数接收这些函数，`globalThis` 不包含以 `__` 开头的属性。因此，设置 `globalOutbound: null` 的 Worker Loader 所加载的 Worker，只能通过其 `env` 中的能力访问宿主。
 
-celld opens two HTTP listeners and terminates TLS on neither.
+celld 依赖两个外部边界：可信私有网络保护内部监听器，对象存储凭据控制集群。
 
-| Listener | Serves | Required protection |
+<a id="separate-the-listeners"></a>
+
+## 分离监听器
+
+celld 打开两个 HTTP 监听器，两者都不终止 TLS。
+
+| 监听器 | 提供的服务 | 必须采取的保护措施 |
 | --- | --- | --- |
-| `--listen` (public) | The deployed Worker | Terminate TLS and authenticate users in a proxy or the application. |
-| `--internal-listen` (default `127.0.0.1:0`, a free loopback port) | The peer protocol and the operator API | Restrict access to trusted operators and fleet nodes. Never expose it to the public internet. Use an encrypted overlay such as WireGuard or Tailscale when the network does not provide confidentiality. |
+| `--listen`（公共） | 已部署的 Worker | 在代理或应用中终止 TLS，并对用户进行认证。 |
+| `--internal-listen`（默认 `127.0.0.1:0`，自动选择空闲回环端口） | 节点间协议和运维 API | 只允许可信运维者和集群节点访问，绝不可暴露到公共互联网。网络不提供保密性时，使用 WireGuard 或 Tailscale 等加密覆盖网络。 |
 
-`--advertise` gives peers the internal address. celld rejects an explicit
-`--advertise` or a non-loopback `--listen` without an explicit
-`--internal-listen`. celld cannot verify a hostname or a translated port, so
-you must route the advertised address to the internal listener.
+`--advertise` 向其他节点提供内部地址。显式设置 `--advertise` 或非回环 `--listen`，却未显式设置 `--internal-listen` 时，celld 会拒绝启动。celld 无法验证主机名或转换后的端口，因此必须由你确保公布的地址路由到内部监听器。
 
-The public listener reserves only `/.well-known/celld/health`: 200 with
-`{"ok":true}` when healthy, 503 otherwise. The Worker owns every other public
-path, including `/health`. The internal listener returns 404 for an unknown
-path, so an operator request cannot become an application request.
+公共监听器只保留 `/.well-known/celld/health`：健康时返回 200 和 `{"ok":true}`，否则返回 503。其他公共路径都由 Worker 管理，包括 `/health`。内部监听器对未知路径返回 404，因此运维请求不会转为应用请求。
 
-The internal listener has three request groups, and all three require the
-trusted private network:
+内部监听器有三组请求，三组都需要可信私有网络：
 
-- Most operator routes have no request authentication.
-- `/peer/tunnel` opens a tunnel for cell fetch, RPC, and WebSocket calls. The
-  establishment request carries the fleet HMAC, a clock limit, and replay
-  protection. The calls inside the tunnel are plain, unsigned HTTP.
-- The peer-control and reserved-cell routes sign each request with the fleet
-  HMAC, a clock limit, and replay protection.
+- 大多数运维路由没有请求认证。
+- `/peer/tunnel` 为单元 fetch、RPC 和 WebSocket 调用建立隧道。建立请求包含集群 HMAC、时钟时限和重放保护。隧道内调用则是未签名的明文 HTTP。
+- 节点控制路由和保留单元路由使用集群 HMAC、时钟时限和重放保护，为每个请求签名。
 
-Every path to a runtime class therefore demands the fleet secret. The HMAC
-does not authenticate tunnel bytes after establishment and does not encrypt
-traffic, so it does not replace the private network.
+因此，访问运行时类的每条路径都需要集群密钥。HMAC 不认证隧道建立后的字节，也不加密流量，不能替代私有网络。
 
-## Use the internal operator API
+<a id="use-the-internal-operator-api"></a>
 
-The operator API is an alpha interface. A release can change its paths or
-response formats. These routes do not authenticate the caller:
+## 使用内部运维 API
 
-- `/state` reports node state.
-- `/cell/<SCOPE>` resolves or activates a cell.
-- `/evict/<SCOPE>` tries to evict a resident cell and reports the result.
-- `/do/<ID>` sends a direct request to an ordinary Durable Object.
-- `POST /shutdown` starts a graceful ownership handoff. `handoff=preserve`
-  prepares a same-node reload.
+运维 API 是 alpha 接口，版本发布时可能改变路径或响应格式。以下路由不认证调用者：
 
-`/do/<ID>` refuses every reserved runtime class, such as D1, Workflows, KV,
-and Queues, because their protocols can access application data. Use the
-HMAC-authenticated `/runtime/<SCOPE>` route for these classes.
+- `/state` 报告节点状态。
+- `/cell/<SCOPE>` 解析或激活单元。
+- `/evict/<SCOPE>` 尝试逐出驻留单元，并报告结果。
+- `/do/<ID>` 向普通 Durable Object 发送直接请求。
+- `POST /shutdown` 开始平滑的所有权交接。`handoff=preserve` 为同节点重新加载做准备。
 
-`/peer/probe` returns a signed diagnostic response. Do not call the other
-reserved peer paths directly.
+`/do/<ID>` 拒绝所有保留运行时类，例如 D1、Workflows、KV 和 Queues，因为其协议能够访问应用数据。访问这些类应使用经过 HMAC 认证的 `/runtime/<SCOPE>` 路由。
 
-### Read an eviction result
+`/peer/probe` 返回签名的诊断响应。不要直接调用其他保留的节点间路径。
 
-An accepted eviction waits for the operation to finish, and a refused one
-returns at once. Concurrent callers can join one eviction, so the success
-count does not equal the stop count.
+<a id="read-an-eviction-result"></a>
 
-The Rust method `AppHandle::evict` returns `Result<EvictSuccess, EvictError>`.
-`Evicted` confirms a completed runtime stop, and `AlreadyAbsent` confirms
-settled local absence. A caller that needs a completed eviction must check for
-`Evicted`. Over HTTP, both return 200 with `{"ok":true}`. `kind()` and
-`reason()` on the error match the HTTP error body. A later request can
-reactivate the cell before the response arrives.
+### 解读逐出结果
 
-A missing cell or a settled `Inactive`, `Dormant`, or `Remote` cell is locally
-absent. A pending activation, stop, or ownership transfer prevents that
-result. The request does not evict a remote runtime. A dormant cell keeps its
-ownership and its hibernated host sockets. The node refuses during
-preservation, reload, or local inventory confirmation, or when it lacks
-authority.
+被接受的逐出请求会等待操作完成，被拒绝的请求则立即返回。多个并发调用者可以加入同一次逐出，因此成功次数不等于运行时停止次数。
 
-An error body has this form:
+Rust 方法 `AppHandle::evict` 返回 `Result<EvictSuccess, EvictError>`。`Evicted` 确认运行时已经停止，`AlreadyAbsent` 确认本地已稳定处于缺席状态。需要确认逐出已完成的调用者必须检查 `Evicted`。在 HTTP 中，两者都返回 200 和 `{"ok":true}`。错误上的 `kind()` 和 `reason()` 与 HTTP 错误体对应。响应送达前，后续请求可能已经重新激活单元。
+
+不存在的单元，或已稳定处于 `Inactive`、`Dormant`、`Remote` 状态的单元，在本地都视为缺席。待完成的激活、停止或所有权转移会阻止返回该结果。此请求不会逐出远程运行时。休眠单元保留所有权和休眠的宿主连接。节点在保留状态、重新加载、确认本地清单期间，或缺乏权限时，会拒绝请求。
+
+错误体格式如下：
 
 ```json
 {"ok":false,"error":{"kind":"refused","reason":"cell_active"}}
 ```
 
-| Status | Kind | Reason | Cause |
+| 状态码 | 类型 | 原因 | 含义 |
 | --- | --- | --- | --- |
-| 409 | `refused` | `cell_active` | The cell has active work or a socket that requires a runtime. |
-| 409 | `refused` | `cell_transitioning` | The cell has another lifecycle transition. |
-| 409 | `refused` | `alarm_imminent` | The alarm residency policy retains the cell. |
-| 409 | `refused` | `alarm_uncovered` | The alarm coverage is unconfirmed, or a firing alarm blocks eviction during pressure shedding. |
-| 503 | `refused` | `node_unavailable` | The node cannot accept the eviction. |
-| 503 | `refused` | `eviction_limit` | The node has reached its eviction concurrency limit. |
-| 409 | `cancelled` | `new_activity` | A new request cancels an accepted eviction. |
-| 409 | `cancelled` | `alarm_activity` | An alarm observation or firing cancels an accepted eviction. |
-| 409 | `cancelled` | `node_fenced` | The node loses its authority during the eviction. |
-| 503 | `failed` | `actor_unavailable` | The request cannot reach the Actor. |
-| 500 | `failed` | `reply_lost` | A delivered request loses its reply, so its outcome is unknown. |
-| 500 | `failed` | `durability_failed` | The durability verification fails. |
-| 500 | `failed` | `durability_timeout` | The durability verification exceeds its operation deadline. |
-| 500 | `failed` | `runtime_stop_failed` | The runtime stop reports a failure. |
+| 409 | `refused` | `cell_active` | 单元仍有活跃工作，或有需要运行时的连接。 |
+| 409 | `refused` | `cell_transitioning` | 单元正在进行其他生命周期转换。 |
+| 409 | `refused` | `alarm_imminent` | 闹钟驻留策略要求保留单元。 |
+| 409 | `refused` | `alarm_uncovered` | 闹钟覆盖尚未确认，或内存压力卸载期间正在触发的闹钟阻止逐出。 |
+| 503 | `refused` | `node_unavailable` | 节点无法接受此次逐出。 |
+| 503 | `refused` | `eviction_limit` | 节点已达到并发逐出上限。 |
+| 409 | `cancelled` | `new_activity` | 新请求取消了已接受的逐出。 |
+| 409 | `cancelled` | `alarm_activity` | 闹钟观察或触发取消了已接受的逐出。 |
+| 409 | `cancelled` | `node_fenced` | 节点在逐出期间失去权限。 |
+| 503 | `failed` | `actor_unavailable` | 请求无法到达 Actor。 |
+| 500 | `failed` | `reply_lost` | 请求已送达，但回复丢失，结果未知。 |
+| 500 | `failed` | `durability_failed` | 持久性验证失败。 |
+| 500 | `failed` | `durability_timeout` | 持久性验证超过操作截止时间。 |
+| 500 | `failed` | `runtime_stop_failed` | 运行时停止操作报告失败。 |
 
-A malformed scope returns 400. An error does not prove that the runtime is
-still resident. The runtime stop has no overall timeout, so a stop that never
-returns keeps the request pending.
+作用域格式错误时返回 400。错误不能证明运行时仍然驻留。运行时停止没有整体超时，因此如果停止操作始终不返回，请求就会持续等待。
 
-## Set the forwarded-header policy
+<a id="set-the-forwarded-header-policy"></a>
 
-celld ignores `X-Forwarded-Host` and `X-Forwarded-Proto` by default. Set
-`--trust-forwarded-headers` or `CELLD_TRUST_FORWARDED_HEADERS=1` only when a
-trusted proxy replaces both headers. celld uses the last value in each header,
-so an earlier client value cannot override the proxy value.
+## 设置转发头策略
 
-celld takes the path and query from the request target and ignores the scheme
-and authority of an absolute-form target. Without a trusted proxy, the `Host`
-header sets the hostname in `request.url`. celld accepts a hostname, an IPv4
-address, or a bracketed IPv6 address, with an optional port. It rejects
-malformed and noncanonical values and falls back to `celld.local`.
+celld 默认忽略 `X-Forwarded-Host` 和 `X-Forwarded-Proto`。只有可信代理会替换这两个头时，才应设置 `--trust-forwarded-headers` 或 `CELLD_TRUST_FORWARDED_HEADERS=1`。celld 使用每个头中的最后一个值，因此客户端提前插入的值无法覆盖代理的值。
 
-The hostname is still client-controlled. Do not use an unchecked hostname for
-an authorization decision. Use a trusted proxy, or check the hostname against a
-list in the Worker.
+celld 从请求目标读取路径和查询字符串，并忽略绝对形式请求目标中的协议和 authority。没有可信代理时，`Host` 头决定 `request.url` 中的主机名。celld 接受主机名、IPv4 地址或带方括号的 IPv6 地址，可附带端口；它拒绝格式错误和非规范值，并回退到 `celld.local`。
 
-## Limit request bodies
+主机名仍由客户端控制。不要用未经检查的主机名作授权判断。应使用可信代理，或在 Worker 中依据允许列表检查主机名。
 
-The public listener and `/do/<ID>` limit a request body to 1 GiB by default.
-Set `CELLD_MAX_REQUEST_BODY_BYTES` to a smaller positive value to lower it.
-celld returns 413 for a declared oversized body and when a Worker reads past
-the limit.
+<a id="limit-request-bodies"></a>
 
-For a method other than `GET` or `HEAD`, `/do/<ID>` streams a body of unknown
-length or of at least 1 MiB. It collects a smaller body before dispatch.
+## 限制请求体
 
-## Protect the fleet bucket
+公共监听器和 `/do/<ID>` 默认将请求体限制为 1 GiB。将 `CELLD_MAX_REQUEST_BODY_BYTES` 设置为更小的正值即可降低上限。声明的请求体过大，或 Worker 读取超过上限时，celld 返回 413。
 
-The fleet bucket is the root of authority. It stores the deployments, the cell
-state, the ownership and node leases, and the shared peer-authentication
-secret. A holder of the bucket credentials controls the fleet. Give each
-credential access to one fleet bucket only, and rotate it after a suspected
-disclosure.
+对于 `GET` 和 `HEAD` 之外的方法，`/do/<ID>` 会流式传输长度未知或至少 1 MiB 的请求体；更小的请求体则在分发前完整收集。
 
-## Cell ownership
+<a id="protect-the-fleet-bucket"></a>
 
-Each cell is a SQLite database with one writer. An ownership epoch fences each
-cell, so a node that loses its lease cannot modify the current state. This
-fencing protects storage consistency. It does not isolate hostile
-applications. See [what celld guarantees](guarantees.md) and
-[limitations](limitations.md).
+## 保护集群存储桶
+
+集群存储桶是权限根源，保存部署、单元状态、所有权和节点租约，以及共享的节点认证密钥。持有存储桶凭据就能控制集群。每份凭据应只具有一个集群存储桶的访问权限，怀疑泄露后应轮换凭据。
+
+<a id="cell-ownership"></a>
+
+## 单元所有权
+
+每个单元都是只有一个写入者的 SQLite 数据库。所有权纪元为每个单元提供隔离保护，因此失去租约的节点无法修改当前状态。这种保护保证存储一致性，并不能隔离恶意应用。详见 [celld 的保证](guarantees.md)和[限制](limitations.md)。

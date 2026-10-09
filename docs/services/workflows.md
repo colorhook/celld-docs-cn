@@ -1,80 +1,58 @@
-# Workflows
+<a id="workflows"></a>
 
-A Workflow is a durable function that runs as a named sequence of steps,
-sleeps, and events. celld runs each instance as a cell. Read the
-[Cloudflare Workflows documentation](https://developers.cloudflare.com/workflows/build/workers-api/)
-for the API.
+# Workflows（工作流）
 
-## Example
+Workflow 是持久化函数，以一系列具名步骤、休眠和事件组成执行流程。celld 将每个实例作为一个单元运行。API 的详细说明请参阅 [Cloudflare Workflows 文档](https://developers.cloudflare.com/workflows/build/workers-api/)。
 
-The [Workflow example](../../examples/workflow) fetches a document and stores
-the result of a durable step.
+<a id="example"></a>
+
+## 示例
+
+[Workflow 示例](../../examples/workflow) 获取一个文档，并保存持久化步骤的结果。
 
 <!-- celld-example: workflow -->
 
+<a id="api"></a>
+
 ## API
 
-- A class extends `WorkflowEntrypoint` and implements `run(event, step)`.
-  `event.payload` holds the parameters, and the return value becomes the
-  `output` field of `status()`.
-- `step.do(name, callback)` runs a durable step, and it retries the callback on
-  failure.
-- `step.sleep(name, duration)` and `step.sleepUntil(name, timestamp)` stop the
-  instance until a deadline.
-- `step.waitForEvent(name, options)` stops the instance until a matching event.
-- `env.MY_WORKFLOW.create()`, `createBatch()`, and `get(id)` return an
-  instance. `deleteBatch()` deletes several instances.
-- An instance has `status()`, `sendEvent()`, `pause()`, `resume()`,
-  `restart()`, `terminate()`, and `delete()`.
+- 定义继承 `WorkflowEntrypoint` 的类，并实现 `run(event, step)`。`event.payload` 保存参数，返回值成为 `status()` 的 `output` 字段。
+- `step.do(name, callback)` 执行一个持久化步骤，回调失败时会重试。
+- `step.sleep(name, duration)` 和 `step.sleepUntil(name, timestamp)` 暂停实例，直到指定时间。
+- `step.waitForEvent(name, options)` 暂停实例，直到收到匹配事件。
+- `env.MY_WORKFLOW.create()`、`createBatch()` 和 `get(id)` 返回实例。`deleteBatch()` 删除多个实例。
+- 实例提供 `status()`、`sendEvent()`、`pause()`、`resume()`、`restart()`、`terminate()` 和 `delete()`。
 
-## Replay
+<a id="replay"></a>
 
-Each time an instance makes progress, celld calls `run()` again from the first
-line. A finished step returns its stored result and does not run its callback
-again. All code outside a step callback therefore runs again on every replay.
-Put each subrequest, each side effect, and each value that must stay stable
-inside a `step.do()` callback, as the
-[rules of Workflows](https://developers.cloudflare.com/workflows/build/rules-of-workflows/)
-require. A step whose result did not commit before a node failure runs again,
-so a step callback must tolerate a second attempt.
+## 重放
 
-`run()` can await work that is not a step, but a replay cannot resume that
-await. celld fails the instance when such work keeps `run()` pending for 60
-seconds while no step runs or waits.
+每当实例取得进展时，celld 都会从第一行重新调用 `run()`。已经完成的步骤会返回存储的结果，不再执行回调。因此，步骤回调以外的所有代码都会在每次重放时重新执行。按照 [Workflows 的规则](https://developers.cloudflare.com/workflows/build/rules-of-workflows/)，每次子请求、每个副作用，以及所有必须保持稳定的值，都应放入 `step.do()` 回调中。如果节点故障前步骤结果尚未提交，该步骤会再次执行，因此步骤回调必须能容忍再次尝试。
 
-## Sleeps, events, and retries
+`run()` 可以等待不属于步骤的工作，但重放无法恢复这种等待。如果没有任何步骤正在执行或等待，而这类工作使 `run()` 连续 60 秒未完成，celld 会将实例标记为失败。
 
-`step.waitForEvent()` times out after 24 hours by default. An event that
-arrives before the instance reaches its wait step is buffered. A sleep, a wait,
-and a pending retry each store their deadline, so a crash or a slow replay
-cannot move the deadline. `status()` reports `waiting` for all three.
+<a id="sleeps-events-and-retries"></a>
 
-A waiting instance holds no isolate. Its cell hibernates when the next deadline
-is further away than the near-alarm residency window. That window is one hour,
-and `CELLD_ALARM_RESIDENT_MS` changes it.
+## 休眠、事件与重试
 
-`step.do()` uses the Cloudflare retry defaults when the call supplies no
-`retries` object: 5 retries, a delay of 10 seconds, exponential backoff, and a
-timeout of 10 minutes for one attempt.
+`step.waitForEvent()` 默认在 24 小时后超时。在实例到达等待步骤之前收到的事件会被缓冲。休眠、事件等待和待执行的重试都会保存截止时间，因此崩溃或缓慢的重放不会改变截止时间。`status()` 对这三种情况均报告 `waiting`。
 
-celld sets no limit on the number of concurrent instances. Fleet memory and the
-resident-cell cap bound it.
+等待中的实例不占用隔离实例。如果下一次截止时间超出近期闹钟的驻留窗口，该单元会休眠。该窗口默认为一小时，可以通过 `CELLD_ALARM_RESIDENT_MS` 修改。
 
-## Differences from Cloudflare
+调用 `step.do()` 时如果没有提供 `retries` 对象，会使用 Cloudflare 的默认重试设置：重试 5 次，延迟 10 秒，采用指数退避，单次尝试超时为 10 分钟。
 
-- celld retains a successful or failed instance for 30 days by default. Each
-  duration in the `retention` option can be at most 30 days.
-- `locationHint` accepts the Cloudflare values, but fleet ownership selects the
-  cell location.
-- Non-step work cannot remain pending for more than 60 seconds.
-- A step result, an event payload, and the workflow parameters each have a
-  1 MiB limit.
-- Rollback, a sensitive step result, and a `ReadableStream` step result are
-  unavailable.
-- A `workflows` entry cannot carry `schedules`, `limits`, or a `script_name`
-  that names another script.
-- The Workflows REST API and the `wrangler workflows` commands are
-  unavailable. Drive an instance through the binding.
+celld 不限制并发实例数量，实际数量受集群内存和驻留单元上限约束。
 
-The [Cloudflare compatibility](../cloudflare-compat.md#services) page lists
-the runtime APIs and the unsupported services.
+<a id="differences-from-cloudflare"></a>
+
+## 与 Cloudflare 的差异
+
+- celld 默认将成功或失败的实例保留 30 天。`retention` 选项中的每个时长最多为 30 天。
+- `locationHint` 接受 Cloudflare 的取值，但单元位置由集群所有权机制决定。
+- 不属于步骤的工作不能连续等待超过 60 秒。
+- 步骤结果、事件载荷和工作流参数各自都有 1 MiB 的上限。
+- 不支持回滚、敏感步骤结果，以及 `ReadableStream` 类型的步骤结果。
+- `workflows` 配置项不能包含 `schedules`、`limits`，也不能通过 `script_name` 指向其他脚本。
+- 不支持 Workflows REST API 和 `wrangler workflows` 命令。请通过绑定操作实例。
+
+[Cloudflare 兼容性](../cloudflare-compat.md#services)页面列出了运行时 API 和不支持的服务。

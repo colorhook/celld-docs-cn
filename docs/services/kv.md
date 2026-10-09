@@ -1,63 +1,48 @@
+<a id="kv"></a>
+
 # KV
 
-KV is a key-value store that a Worker reaches through a binding. Each namespace
-is one celld cell, and a value above 1 MiB lives in the fleet bucket. Read the
-[Cloudflare KV documentation](https://developers.cloudflare.com/kv/api/) for the
-API.
+KV 是通过绑定供 Worker 访问的键值存储。每个命名空间对应一个 celld 单元，大于 1 MiB 的值存放在集群存储桶中。API 的详细说明请参阅 [Cloudflare KV 文档](https://developers.cloudflare.com/kv/api/)。
 
-## Example
+<a id="example"></a>
 
-The [KV example](../../examples/kv) reads, writes, and deletes values in a KV
-namespace.
+## 示例
+
+[KV 示例](../../examples/kv) 演示如何在 KV 命名空间中读取、写入和删除值。
 
 <!-- celld-example: kv -->
 
+<a id="api"></a>
+
 ## API
 
-- `get(key, type)` returns the value as `"text"`, `"json"`, `"arrayBuffer"`, or
-  `"stream"`. A missing key gives `null`.
-- `getWithMetadata(key, type)` also returns the metadata of the write.
-- `put(key, value, options)` takes a string, an `ArrayBuffer`, a typed array, or
-  a `ReadableStream`. The options are `expiration` (an absolute time in
-  seconds), `expirationTtl` (seconds from now), and `metadata`.
-- `delete(key)` removes a key.
-- `list({ prefix, cursor })` returns a page of key names and a cursor for the
-  next page.
+- `get(key, type)` 以 `"text"`、`"json"`、`"arrayBuffer"` 或 `"stream"` 格式返回值。键不存在时返回 `null`。
+- `getWithMetadata(key, type)` 还会返回写入时附带的元数据。
+- `put(key, value, options)` 接受字符串、`ArrayBuffer`、类型化数组或 `ReadableStream`。可用选项包括 `expiration`（以秒为单位的绝对时间）、`expirationTtl`（从现在开始计算的秒数）和 `metadata`。
+- `delete(key)` 删除一个键。
+- `list({ prefix, cursor })` 返回一页键名，以及用于读取下一页的游标。
 
-## Configuration and limits
+<a id="configuration-and-limits"></a>
 
-A `kv_namespaces` entry gives a `binding` and an `id`. The `id` is the namespace
-identity, and it can be any string, such as a Cloudflare hexadecimal id or
-`sessions`. Two Workers that name one `id` reach one namespace. celld ignores
-`preview_id`.
+## 配置与限制
 
-`put()` reads a `ReadableStream` to its end before the write, so
-`put(key, request.body)` works. `list()` returns at most 1000 keys in byte
-order, and a concurrent write cannot make the cursor skip a key.
+`kv_namespaces` 配置项包含 `binding` 和 `id`。`id` 是命名空间的标识，可以是任意字符串，例如 Cloudflare 的十六进制 ID 或 `sessions`。两个 Worker 使用同一个 `id` 时，会访问同一个命名空间。celld 忽略 `preview_id`。
 
-celld enforces the
-[Cloudflare KV limits](https://developers.cloudflare.com/kv/platform/limits/): a
-key of at most 512 bytes, a value of at most 25 MiB, metadata of at most 1024
-bytes, and at most 100 keys in one bulk `get()`. A call that crosses a limit
-fails, and celld never truncates data. The minimum expiration is 60 seconds. An
-expired key becomes invisible at the moment it expires.
+`put()` 会先完整读取 `ReadableStream`，再执行写入，因此可以使用 `put(key, request.body)`。`list()` 按字节顺序返回最多 1000 个键，并发写入不会导致游标漏掉某个键。
 
-Every call goes to the node that owns the namespace cell, so a read costs one
-cell dispatch. Hold a value in a local variable when one request reads it many
-times. Writes to one namespace run one at a time, so use a Durable Object for a
-write-hot value such as a counter.
+celld 执行 [Cloudflare KV 的限制](https://developers.cloudflare.com/kv/platform/limits/)：键最多 512 字节，值最多 25 MiB，元数据最多 1024 字节，批量 `get()` 每次最多读取 100 个键。超过限制的调用会失败，celld 绝不会截断数据。过期时间最少为 60 秒，键在过期的那一刻起便不可见。
 
-A write of a value above 1 MiB without a fleet bucket fails with
-`KV large values need a fleet bucket`.
+每次调用都会发送到拥有该命名空间单元的节点，因此每次读取需要一次单元分发。如果一个请求要多次读取同一个值，应将它保存在局部变量中。一个命名空间中的写入会依次执行，因此对于计数器等写入频繁的值，应使用 Durable Object。
 
-## Differences from Cloudflare
+未配置集群存储桶时，写入大于 1 MiB 的值会失败，错误为 `KV large values need a fleet bucket`（KV 的大值需要集群存储桶）。
 
-- A celld read never returns a stale value, because it reaches the cell that
-  owns the namespace. Cloudflare KV is eventually consistent.
-- celld has no edge cache. `cacheTtl` has no effect, and `cacheStatus` is
-  `null`.
-- A value above 1 MiB requires a fleet bucket.
-- A namespace has one writer. Use more namespaces to increase write capacity.
+<a id="differences-from-cloudflare"></a>
 
-The [Cloudflare compatibility](../cloudflare-compat.md#services) page lists the
-runtime APIs and the unsupported services.
+## 与 Cloudflare 的差异
+
+- celld 的读取总会访问拥有该命名空间的单元，因此不会返回旧值。Cloudflare KV 则提供最终一致性。
+- celld 没有边缘缓存。`cacheTtl` 不起作用，`cacheStatus` 为 `null`。
+- 大于 1 MiB 的值需要集群存储桶。
+- 每个命名空间只有一个写入者。增加命名空间数量可以提高写入容量。
+
+[Cloudflare 兼容性](../cloudflare-compat.md#services)页面列出了运行时 API 和不支持的服务。

@@ -1,0 +1,201 @@
+{
+  "pages": [
+    {
+      "page": "概览",
+      "chinese": true,
+      "heading": "celld",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 73,
+      "title": "概览 · celld 中文文档"
+    },
+    {
+      "page": "Cloudflare 兼容性",
+      "chinese": true,
+      "heading": "Cloudflare 兼容性",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 16,
+      "title": "Cloudflare 兼容性 · celld 中文文档"
+    },
+    {
+      "page": "限制",
+      "chinese": true,
+      "heading": "限制",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 1,
+      "title": "限制 · celld 中文文档"
+    },
+    {
+      "page": "安全",
+      "chinese": true,
+      "heading": "安全",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 24,
+      "title": "安全 · celld 中文文档"
+    },
+    {
+      "page": "遥测",
+      "chinese": true,
+      "heading": "遥测",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 20,
+      "title": "遥测 · celld 中文文档"
+    },
+    {
+      "page": "测试",
+      "chinese": true,
+      "heading": "测试",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 19,
+      "title": "测试 · celld 中文文档"
+    },
+    {
+      "page": "WebAssembly",
+      "chinese": true,
+      "heading": "WebAssembly",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 11,
+      "title": "WebAssembly · celld 中文文档"
+    },
+    {
+      "page": "celld 的保证",
+      "chinese": true,
+      "heading": "celld 的保证",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 47,
+      "title": "celld 的保证 · celld 中文文档"
+    },
+    {
+      "page": "Containers · 容器",
+      "chinese": true,
+      "heading": "Containers（容器）",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 19,
+      "title": "Containers · 容器 · celld 中文文档"
+    },
+    {
+      "page": "定时触发器",
+      "chinese": true,
+      "heading": "Cron Triggers（定时触发器）",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 12,
+      "title": "定时触发器 · celld 中文文档"
+    },
+    {
+      "page": "D1",
+      "chinese": true,
+      "heading": "D1",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 11,
+      "title": "D1 · celld 中文文档"
+    },
+    {
+      "page": "Durable Object 子对象",
+      "chinese": true,
+      "heading": "Durable Object Facets（子对象）",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 14,
+      "title": "Durable Object 子对象 · celld 中文文档"
+    },
+    {
+      "page": "Durable Objects / 单元",
+      "chinese": true,
+      "heading": "Durable Objects / 单元",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 15,
+      "title": "Durable Objects / 单元 · celld 中文文档"
+    },
+    {
+      "page": "动态 Workers",
+      "chinese": true,
+      "heading": "Dynamic Workers（动态 Workers）",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 12,
+      "title": "动态 Workers · celld 中文文档"
+    },
+    {
+      "page": "KV",
+      "chinese": true,
+      "heading": "KV",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 8,
+      "title": "KV · celld 中文文档"
+    },
+    {
+      "page": "Queues · 消息队列",
+      "chinese": true,
+      "heading": "Queues（消息队列）",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 7,
+      "title": "Queues · 消息队列 · celld 中文文档"
+    },
+    {
+      "page": "R2",
+      "chinese": true,
+      "heading": "R2",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 8,
+      "title": "R2 · celld 中文文档"
+    },
+    {
+      "page": "静态资源",
+      "chinese": true,
+      "heading": "静态资源",
+      "images": [
+        {
+          "alt": "单个请求的路由决策：检查方法、run_worker_first、_redirects 规则、html_handling 查找、未命中后重新读取部署指针、not_found_handling，以及回退到 Worker",
+          "loaded": true
+        }
+      ],
+      "overflow": false,
+      "paragraphs": 15,
+      "title": "静态资源 · celld 中文文档"
+    },
+    {
+      "page": "Workers",
+      "chinese": true,
+      "heading": "Workers",
+      "images": [
+        {
+          "alt": "入口代理终止 TLS 并将请求发送到任意 celld 节点；节点在 V8 隔离实例中运行 Worker，绑定调用则发送到单元的拥有者节点或集群存储桶",
+          "loaded": true
+        }
+      ],
+      "overflow": false,
+      "paragraphs": 18,
+      "title": "Workers · celld 中文文档"
+    },
+    {
+      "page": "Workflows · 工作流",
+      "chinese": true,
+      "heading": "Workflows（工作流）",
+      "images": [],
+      "overflow": false,
+      "paragraphs": 9,
+      "title": "Workflows · 工作流 · celld 中文文档"
+    }
+  ],
+  "interactiveChecks": {
+    "chineseSearch": true,
+    "searchResultNavigation": true,
+    "sectionAnchors": true,
+    "codeCopy": true
+  },
+  "consoleErrors": []
+}

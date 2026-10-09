@@ -1,160 +1,87 @@
-# Containers
+<a id="containers"></a>
 
-A container runs a program that is not JavaScript beside the Worker that needs
-it. A Durable Object starts the container, reaches it over a TCP port, and stops
-it. The container disk is ephemeral, so durable state belongs in the storage of
-the object or in another binding. Containers are experimental in celld, so the
-configuration keys, the `ctx.container` surface, the node defaults, and the
-security boundary can change without notice. Read the
-[Cloudflare Containers documentation](https://developers.cloudflare.com/containers/)
-for the standard API.
+# Containers（容器）
 
-## Example
+容器在需要它的 Worker 旁运行非 JavaScript 程序。Durable Object 启动容器，通过 TCP 端口访问它，并负责停止它。容器磁盘是临时的，因此持久化状态应保存在对象存储或其他绑定中。celld 中的容器功能仍处于实验阶段，配置字段、`ctx.container` API、节点默认设置和安全边界都可能随时变化。标准 API 请参阅 [Cloudflare Containers 文档](https://developers.cloudflare.com/containers/)。
 
-The [Containers example](../../examples/container) starts a Python HTTP server
-and reaches it through a container port.
+<a id="example"></a>
+
+## 示例
+
+[Containers 示例](../../examples/container) 启动 Python HTTP 服务器，并通过容器端口访问它。
 
 <!-- celld-example: container -->
 
-## The object and its container
+<a id="the-object-and-its-container"></a>
 
-A `containers` entry names a SQLite-backed Durable Object class of the same
-script. Each object of that class gets a `ctx.container` handle and controls at
-most one container.
+## 对象与容器
 
-celld implements this part of `ctx.container`:
+`containers` 配置项指定同一脚本中一个使用 SQLite 存储的 Durable Object 类。该类的每个对象都会获得 `ctx.container` 句柄，最多控制一个容器。
 
-- `start()` starts the container. It accepts `entrypoint`, `env`,
-  `enableInternet`, and `labels`.
-- `running` reports the state of the engine, so an object that lost its
-  `monitor()` sees the exit at its next event.
-- `monitor()` returns a promise that settles when the container exits.
-- `destroy()` stops the container, and `signal()` sends it a signal.
-- `getTcpPort(port).fetch()` sends an HTTP request to a port, and
-  `getTcpPort(port).connect()` opens a raw socket.
-- `exec()` runs a process in the container.
-- `setInactivityTimeout()` sets the idle window.
+celld 实现了以下 `ctx.container` 功能：
 
-On Linux, `getTcpPort(port)` reaches every port through the bridge address of
-the container. A fetch with an `Upgrade: websocket` header gives a 101 response
-with a `webSocket`, as on Cloudflare. The node logs a failed `start()` as
-`container_start_failed`.
+- `start()` 启动容器，接受 `entrypoint`、`env`、`enableInternet` 和 `labels`。
+- `running` 报告容器引擎中的状态，因此即使对象失去了 `monitor()`，也能在下一次事件时发现容器已经退出。
+- `monitor()` 返回在容器退出时完成的 Promise。
+- `destroy()` 停止容器，`signal()` 向容器发送信号。
+- `getTcpPort(port).fetch()` 向端口发送 HTTP 请求，`getTcpPort(port).connect()` 打开原始套接字。
+- `exec()` 在容器中运行进程。
+- `setInactivityTimeout()` 设置空闲窗口。
 
-`@cloudflare/containers` runs as published, including the `sleepAfter` alarm,
-`getContainer()`, `getRandom()`, and `switchPort()`. `@cloudflare/sandbox` also
-runs as published on the `cloudflare/sandbox` image, over the HTTP and the RPC
-transports. Its preview URLs need a wildcard hostname at the load balancer,
-tunnels run cloudflared inside the container, and bucket mounts use the
-credentials that the application passes. See the
-[sandbox example](../../examples/sandbox).
+在 Linux 上，`getTcpPort(port)` 通过容器的网桥地址访问所有端口。与 Cloudflare 一样，带 `Upgrade: websocket` 请求头的 fetch 会得到包含 `webSocket` 的 101 响应。节点将失败的 `start()` 记录为 `container_start_failed`。
 
-## The image and the node
+`@cloudflare/containers` 可以直接使用其发布版本，包括 `sleepAfter` 闹钟、`getContainer()`、`getRandom()` 和 `switchPort()`。`@cloudflare/sandbox` 的发布版本也可在 `cloudflare/sandbox` 镜像上通过 HTTP 和 RPC 传输运行。预览 URL 需要负载均衡器上的通配主机名；隧道在容器内部运行 cloudflared；存储桶挂载使用应用传入的凭据。详见 [sandbox 示例](../../examples/sandbox)。
 
-`celld deploy` builds a Dockerfile in the project, or pulls an image reference,
-with the `docker` CLI on `PATH` or the CLI that `CELLD_DOCKER` names. A Podman
-CLI works. It saves the image to `deploy/images/<key>.tar` in the fleet bucket,
-where the key hashes the image layers and config, so a redeploy of an unchanged
-image uploads nothing. A node loads the image into its own engine the first time
-a cell of the class starts, and never contacts a registry. The `celld-fence`
-image rides with every deployment that has a container.
+<a id="the-image-and-the-node"></a>
 
-`celld deploy` builds and pulls for `linux/amd64`, as Wrangler does.
-`CELLD_CONTAINER_PLATFORM` selects another platform. `celld dev` builds for the
-local machine and keeps the image in the local engine.
+## 镜像与节点
 
-The container runs on the node that owns the cell. Each node that serves a
-container class needs a Docker or Podman daemon. celld uses the Unix socket
-that `DOCKER_HOST` names, or the default socket of Docker, Docker Desktop,
-OrbStack, or Podman. A `DOCKER_HOST` value that is not a `unix://` URL gives
-celld no socket. A node without an engine cannot activate a cell of a container
-class, and it serves every other class.
+`celld deploy` 使用 `PATH` 中的 `docker` CLI 或 `CELLD_DOCKER` 指定的 CLI，构建项目中的 Dockerfile，或拉取镜像引用。也可以使用 Podman CLI。镜像保存在集群存储桶中的 `deploy/images/<key>.tar` 下，键由镜像层和配置的哈希生成，因此重新部署未变化的镜像不会上传任何内容。节点在该类的单元首次启动时，将镜像加载到自己的引擎中，之后不会访问镜像仓库。每个包含容器的部署都会附带 `celld-fence` 镜像。
 
-## The isolation boundary
+与 Wrangler 一样，`celld deploy` 为 `linux/amd64` 构建和拉取镜像。`CELLD_CONTAINER_PLATFORM` 可选择其他平台。`celld dev` 为本机平台构建，并将镜像保存在本地引擎中。
 
-Under the default runtime, a container shares the kernel of the node and is not
-a virtual machine. celld drops all Linux capabilities, sets
-`no-new-privileges`, keeps the default seccomp profile of the daemon, limits the
-container to 1024 processes, and runs an init as PID 1 that reaps orphans. Two
-containers on one node cannot connect to each other.
+容器运行在拥有单元的节点上。每个承载容器类的节点都需要 Docker 或 Podman 守护进程。celld 使用 `DOCKER_HOST` 指定的 Unix 套接字，或 Docker、Docker Desktop、OrbStack、Podman 的默认套接字。如果 `DOCKER_HOST` 不是 `unix://` URL，celld 就没有可用的套接字。没有容器引擎的节点不能激活容器类的单元，但仍可承载其他类。
 
-Before the first container starts, the node installs nftables rules on its
-container bridges through a one-shot privileged container of the `celld-fence`
-image. A container with `enableInternet: true` reaches the Internet, but not
-the node, another node, the private ranges `10/8`, `172.16/12`, `192.168/16`,
-and `100.64/10`, or the link-local range. A node that cannot install the rules
-starts no container, and a deployment from a celld without the fence image
-starts no container on a node that has the fence.
+<a id="the-isolation-boundary"></a>
 
-`enableInternet: false` attaches the container to an internal bridge with no
-route out. On macOS, an internal network publishes no port, so `celld dev` on
-macOS keeps egress on and logs a warning. The fence still applies.
+## 隔离边界
 
-`CELLD_CONTAINER_RUNTIME` names the OCI runtime for every container on the node,
-for example `runsc` for gVisor or `kata` for a virtual machine. A `runtime` key
-in a `containers` entry overrides it for that class; Cloudflare has no such key.
-If the daemon lacks the runtime, every `start()` fails with the daemon error.
-For code that you did not write, name a runtime that gives each container its
-own kernel, and keep the secrets in the Worker.
+默认运行时下，容器共享节点内核，并非虚拟机。celld 移除所有 Linux capabilities，设置 `no-new-privileges`，保留守护进程默认的 seccomp 策略，将容器限制为最多 1024 个进程，并让 PID 1 运行负责回收孤儿进程的 init。同一节点上的两个容器不能互相连接。
 
-A container under a named runtime gets a written `/etc/resolv.conf` with
-`1.1.1.1` and `1.0.0.1`, or the `CELLD_CONTAINER_DNS` resolvers, because gVisor
-cannot reach the built-in resolver of the engine. The fence permits the public
-resolver. A container on the default runtime keeps the engine resolver unless
-the operator sets `CELLD_CONTAINER_DNS`.
+首次启动容器前，节点通过 `celld-fence` 镜像的一次性特权容器，在容器网桥上安装 nftables 规则。设置 `enableInternet: true` 的容器可以访问互联网，但不能访问本节点、其他节点、私有地址段 `10/8`、`172.16/12`、`192.168/16`、`100.64/10`，以及链路本地地址段。无法安装规则的节点不会启动任何容器；如果部署由不包含 fence 镜像的 celld 生成，也无法在启用 fence 的节点上启动容器。
 
-## Sleep, wake, and the node's resources
+`enableInternet: false` 会将容器连接到没有外部路由的内部网桥。在 macOS 上，内部网络无法发布端口，因此 macOS 的 `celld dev` 会保持出站网络启用并记录警告。fence 规则仍然生效。
 
-`setInactivityTimeout()` sets the idle window, and the default is 10 minutes, as
-on Cloudflare. An idle eviction of the cell keeps the container running for that
-window, and the next activation on the same node reconnects to it. A move to
-another node, a node restart, a reset, and a node stop destroy the container.
-Ctrl-C on `celld dev` destroys the containers and keeps the local state.
+`CELLD_CONTAINER_RUNTIME` 指定节点上所有容器使用的 OCI 运行时，例如 gVisor 的 `runsc` 或虚拟机运行时 `kata`。`containers` 配置项中的 `runtime` 可为某个类覆盖该设置；Cloudflare 没有这个字段。如果守护进程缺少指定运行时，每次 `start()` 都会返回守护进程错误。运行非自己编写的代码时，应指定为每个容器提供独立内核的运行时，并将密钥保留在 Worker 中。
 
-`instance_type` accepts `lite` and its older name `dev`, `basic`, `standard-1`
-and its alias `standard`, `standard-2`, `standard-3`, and `standard-4`, with the
-CPU and memory limits of
-[the Cloudflare limits page](https://developers.cloudflare.com/containers/platform/limits/).
-The default is `dev`: a sixteenth of a CPU and 256 MiB, as on Cloudflare. Name a
-larger type when the image boots an interpreter.
+使用具名运行时的容器会写入 `/etc/resolv.conf`，默认使用 `1.1.1.1` 和 `1.0.0.1`，也可使用 `CELLD_CONTAINER_DNS` 指定的解析器，因为 gVisor 无法访问引擎内置解析器。fence 允许访问公共解析器。默认运行时的容器会继续使用引擎解析器，除非运维者设置 `CELLD_CONTAINER_DNS`。
 
-The node counts the memory cap of every running container as committed memory,
-because the container cgroup is outside the node process. A container-heavy
-node therefore reports no headroom and sheds cells. Set the node memory ceiling
-at or above the largest instance type in use, plus headroom.
+<a id="sleep-wake-and-the-nodes-resources"></a>
 
-Each node publishes its running container count per class in the shared
-capacity sample. Before a start, a node sums the fleet count and its own live
-count against `max_instances`. A start over the cap fails, and the node logs
-`container_start_failed` with the limit.
+## 休眠、唤醒与节点资源
 
-## Differences from Cloudflare
+`setInactivityTimeout()` 设置空闲窗口，默认与 Cloudflare 一样为 10 分钟。单元因空闲被逐出后，容器会在该窗口内继续运行；单元在同一节点上再次激活时会重新连接它。迁移到其他节点、节点重启、重置和节点停止都会销毁容器。在 `celld dev` 中按 Ctrl-C 会销毁容器，同时保留本地状态。
 
-- A `containers` entry accepts `class_name`, `image`, `name`, `instance_type`,
-  `max_instances`, and `runtime`. Each other key stops the deployment. celld
-  adds `runtime`, and it accepts `name` without using it.
-- celld places a container on the node that owns the cell. Cloudflare can place
-  a container away from its object.
-- A node that serves a container class needs a Docker daemon or a Podman daemon.
-- celld does not enforce the disk size of an instance type.
-- `max_instances` converges across the fleet instead of holding centrally, so
-  the fleet can exceed the cap for one refresh. `celld dev` enforces no cap.
-- `inspect()`, `snapshotDirectory()`, `snapshotContainer()`, and the outbound
-  interception methods reject with an error. `start()` checks `hardTimeout` and
-  then ignores it, so a value of 0 or less throws and a valid value has no
-  effect.
-- `getTcpPort(port).connect()` gives a socket with the lifetime of the event
-  that opened it. See [TCP sockets](../cloudflare-compat.md#tcp-sockets).
-- A `monitor()` promise and an `exec()` process do not keep the object active
-  after the handler answers.
-- On macOS, the node reaches a container through a published port, so the image
-  must declare the port with `EXPOSE`. `enableInternet: false` has no effect on
-  macOS.
-- The container bridges carry no IPv6 address, and the fence rejects the IPv6
-  link-local and unique-local ranges as well.
-- A move of an object to another node stops its container, so the first
-  `@cloudflare/sandbox` call after the move can fail with the SDK's
-  `OperationInterruptedError`, as after a container restart on Cloudflare. The
-  next call starts a fresh container.
+`instance_type` 接受 `lite` 及其旧名 `dev`、`basic`、`standard-1` 及其别名 `standard`、`standard-2`、`standard-3` 和 `standard-4`，CPU 与内存限制遵循 [Cloudflare 限制页面](https://developers.cloudflare.com/containers/platform/limits/)。默认值与 Cloudflare 一样为 `dev`：1/16 个 CPU 和 256 MiB 内存。如果镜像启动解释器，应选择更大的规格。
 
-The [Cloudflare compatibility](../cloudflare-compat.md#services) page lists
-the runtime APIs and the unsupported services.
+节点会将每个运行中容器的内存上限计入已承诺内存，因为容器 cgroup 位于节点进程之外。因此，容器较多的节点可能报告没有剩余容量，并开始卸载单元。节点内存上限应至少覆盖当前最大的实例规格，并留有余量。
+
+每个节点在共享容量样本中公布各类正在运行的容器数量。启动前，节点将集群统计数量与自身实时数量汇总，与 `max_instances` 比较。超过上限的启动会失败，节点记录包含限制值的 `container_start_failed`。
+
+<a id="differences-from-cloudflare"></a>
+
+## 与 Cloudflare 的差异
+
+- `containers` 配置项接受 `class_name`、`image`、`name`、`instance_type`、`max_instances` 和 `runtime`。其他字段会停止部署。celld 增加了 `runtime`，接受 `name` 但不使用它。
+- celld 将容器放置在单元拥有者节点上。Cloudflare 可以将容器放在与对象不同的位置。
+- 承载容器类的节点需要 Docker 或 Podman 守护进程。
+- celld 不执行实例规格的磁盘大小限制。
+- `max_instances` 通过集群间收敛实现，而不是集中控制，因此集群可能在一次刷新周期内超出上限。`celld dev` 不执行此上限。
+- `inspect()`、`snapshotDirectory()`、`snapshotContainer()` 和出站拦截方法会报错。`start()` 校验 `hardTimeout` 后将其忽略，因此小于等于 0 的值会抛出异常，合法值则不起作用。
+- `getTcpPort(port).connect()` 返回的套接字，其生命周期与打开它的事件相同，详见 [TCP 套接字](../cloudflare-compat.md#tcp-sockets)。
+- 处理函数响应后，`monitor()` Promise 和 `exec()` 进程不会使对象保持活跃。
+- 在 macOS 上，节点通过已发布端口访问容器，因此镜像必须用 `EXPOSE` 声明端口。`enableInternet: false` 在 macOS 上不起作用。
+- 容器网桥没有 IPv6 地址，fence 也会拒绝 IPv6 链路本地和唯一本地地址段。
+- 对象迁移到其他节点会停止容器，因此迁移后的首次 `@cloudflare/sandbox` 调用可能抛出 SDK 的 `OperationInterruptedError`，与 Cloudflare 上容器重启后的情况一样。下一次调用会启动新容器。
+
+[Cloudflare 兼容性](../cloudflare-compat.md#services)页面列出了运行时 API 和不支持的服务。

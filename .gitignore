@@ -4,3 +4,9 @@
 .dev.vars
 node_modules/
 package-lock.json
+
+# Local Chinese documentation build artifacts
+.translation/
+docs-site/dist/
+!docs-site/package-lock.json
+.wrangler/

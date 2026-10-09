@@ -1,3 +1,22 @@
+# celld 中文文档
+
+[在线阅读](https://celld.genhub.me/) · [文档目录](docs/README.md) · [构建与部署说明](docs-site/README.md)
+
+本仓库是 celld 的非官方简体中文文档，完整翻译了 v0.6.2 的 20 篇文档和两张流程图。译文由 LLM 直接完成，没有使用翻译接口。保留上游源码、示例与许可证，便于对照原文和维护更新。
+
+网站发布在 Cloudflare Workers 静态资源托管，直接访问 **https://celld.genhub.me/**。
+
+本地预览：
+
+```sh
+npm ci --prefix docs-site
+npm start --prefix docs-site
+```
+
+以下为上游项目介绍。
+
+---
+
 # celld
 
 Self-hosted, distributed **Durable Objects**.

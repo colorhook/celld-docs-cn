@@ -1,145 +1,81 @@
-# Testing
+<a id="testing"></a>
 
-celld makes three promises:
+# 测试
 
-- An acknowledged write is durable.
-- A cell has one writer at a time.
-- Code written for Cloudflare Workers and Durable Objects operates the same on
-  celld.
+celld 作出三项承诺：
 
-We test the API contract by differential execution against workerd, the
-coordination protocol by model checking and deterministic simulation, and the
-full system by fault injection on live fleets.
+- 已确认的写入具有持久性。
+- 一个单元在同一时刻只有一个写入者。
+- 为 Cloudflare Workers 和 Durable Objects 编写的代码，在 celld 上具有相同的行为。
 
-## Conformance: two runtimes, one output
+我们通过与 workerd 进行差分执行测试 API 契约，通过模型检验和确定性模拟测试协调协议，并在真实集群上通过故障注入测试完整系统。
 
-We run the same Workers and Durable Objects programs on workerd, Cloudflare's
-production runtime, and on celld, and the outputs must match. workerd supplies
-the reference output, so the expected behavior does not depend on celld.
+<a id="conformance-two-runtimes-one-output"></a>
 
-Each new API adds fixtures to the corpus. We also port the workerd Durable
-Objects contract tests, its web-platform globals tests, and the upstream Web
-Platform Tests. Before a release, we replay storage, SQL, alarm, stream,
-WebSocket, and lifecycle scenarios through the full `celld` binary in each
-deployment mode.
+## 一致性测试：两个运行时，同一个输出
 
-## Specification: exhaustive at small size
+我们在 Cloudflare 的生产运行时 workerd 和 celld 上运行相同的 Workers 与 Durable Objects 程序，要求输出一致。workerd 提供参考输出，因此预期行为不依赖 celld 的实现。
 
-The coordination protocol is specified in TLA+. Heyang Zhou wrote the
-specifications against celld v0.1.0. His model checking found four bugs and a
-split-brain that lost an acknowledged write. All are fixed. None had surfaced
-in our own review or testing.
+每个新增 API 都会向测试语料库添加用例。我们还移植了 workerd 的 Durable Objects 契约测试、Web 平台全局对象测试，以及上游 Web Platform Tests。发布前，我们在各部署模式下，通过完整的 `celld` 二进制重放存储、SQL、闹钟、流、WebSocket 和生命周期场景。
 
-At a small configuration, the checker visits every reachable state. The model
-grants a linearizable object store and perfect shared clocks, so a violation
-needs no clock skew or storage anomaly. The invariants are one writer for each
-epoch and no lost acknowledged write. The checker also verifies that the epoch
-in the key stops a stale owner's late writes from losing an acknowledged write.
+<a id="specification-exhaustive-at-small-size"></a>
 
-Each configuration pins an expected verdict, and most verdicts are failures:
-each models a past protocol bug or a deliberately broken checker, and must
-produce its counterexample.
+## 形式化规范：小规模下穷尽状态
 
-A redesign of the write-acknowledgment fence was checked before it was built.
-The check found an eight-state counterexample against the old version: a
-dormant cell resumes at its old epoch while its release is in flight,
-acknowledges a write, and the following takeover restores without it. The fix
-shipped, and the counterexample stays as a pinned failure.
+协调协议使用 TLA+ 描述。Heyang Zhou 针对 celld v0.1.0 编写了规范。他的模型检验发现四个错误，以及一次导致已确认写入丢失的脑裂问题，均已修复。这些问题此前都没有在我们自己的审查或测试中暴露。
 
-The checker also removed code. celld once sealed a cell's durable history at
-restore. The verdicts showed that the seal only prevented the return of an
-unacknowledged write, which celld does not promise, and that it could turn a
-recoverable ordering error into permanent data loss.
+在小规模配置下，检验器遍历所有可达状态。模型假设对象存储具有线性一致性，并且共享时钟完全准确，因此违规无需时钟偏差或存储异常即可发生。需要保持的不变量是：每个纪元只有一个写入者，且已确认写入不会丢失。检验器还验证了键中的纪元能够防止旧拥有者的延迟写入造成已确认写入丢失。
 
-We update the specifications by hand with protocol changes. They do not run in
-continuous integration. A separate record tracks what the model does not yet
-describe, including guarantees weaker than the code's.
+每个配置都固定了预期判定，其中大多数预期为失败：每个配置建模一个历史协议错误或故意破坏的检验器，必须产生对应反例。
 
-## Simulation: the protocol under adversarial schedules
+写入确认隔离机制的重新设计，在实现前就接受了检验。检验发现旧版本存在一个八状态反例：休眠单元在释放操作尚未完成时，以旧纪元恢复，确认一次写入，随后接管却在恢复时遗漏该写入。修复已发布，该反例仍作为固定的预期失败用例保留。
 
-The dangerous bugs are in coordination: a crash during an ownership handoff, a
-lease renewal that races a takeover, an alarm against a partially restored
-cell. These windows are too narrow and too rare to wait for.
+检验器也帮助删除了代码。celld 曾在恢复时封存单元的持久化历史。判定结果表明，这种封存只防止未确认写入重新出现，而 celld 并不承诺这一点；它还可能将可恢复的顺序错误变成永久数据丢失。
 
-The coordination protocol is therefore a
-[pure decision core](https://github.com/denoland/celld/tree/main/crates/logic)
-with no I/O. The clock, the randomness, and the object store are interfaces
-that a simulator drives. The simulated store injects latency, compare-and-swap
-races, and lost responses. The clocks drift, and a node can crash at each
-await point. Scripted adversaries play the cells, such as a handler that never
-returns or a write stream that stops halfway. V8 is not deterministic, so it
-stays out of the simulation.
+协议变化时，我们手动更新规范。它们不在持续集成中运行。另有独立记录追踪模型尚未描述的内容，包括比实际代码更弱的保证。
 
-A seeded scheduler drives each run, so a failure reproduces exactly. We check
-safety (two writers in one epoch, a lost acknowledged write, an expired lease
-that returns) and liveness (each armed alarm fires, ownership settles on one
-node after a crash). A property must survive tens of thousands of seeds, and
-the core protocols have run through millions of schedules. Deliberately broken
-protocol variants verify that the checkers detect the faults.
+<a id="simulation-the-protocol-under-adversarial-schedules"></a>
 
-## Live fleets: what simulation cannot see
+## 模拟：对抗性调度下的协议
 
-Simulation cannot see real S3 tail latency, real kernel and filesystem
-behavior, or V8 under memory pressure. A permanent fleet lab runs standard VMs
-from standard providers against a real bucket. Workloads rotate: chat rooms
-with many WebSocket connections, working sets that shift across tens of
-thousands of checksummed cells, deployment cutovers under load, and nodes
-filled to the memory limit. The lab qualifies each release. We archive each
-run's configuration, verification sweeps, node journals, kernel logs, and
-phase timings, including failed runs.
+危险错误集中在协调环节：所有权交接期间崩溃、租约续期与接管竞争、闹钟遇到部分恢复的单元。这些窗口过窄、过于罕见，无法靠等待自然出现。
 
-Faults land between verification passes. A pass fetches each cell through
-different nodes and compares the status, the body, and the full message
-ledger. A cell can be briefly unavailable while ownership moves, but its
-committed state must stay complete and a live node must serve it again.
+因此，协调协议采用不含 I/O 的[纯决策核心](https://github.com/denoland/celld/tree/main/crates/logic)。时钟、随机性和对象存储都是由模拟器驱动的接口。模拟存储注入延迟、比较并交换竞争以及响应丢失；时钟可以漂移，节点可以在每个等待点崩溃。脚本化对手模拟单元行为，例如永不返回的处理函数，或中途停止的写入流。V8 不是确定性的，因此不参与模拟。
 
-The scenarios:
+每次运行由带种子的调度器驱动，失败可以精确复现。我们检查安全性（同一纪元存在两个写入者、已确认写入丢失、过期租约重新生效）和活性（每个已设置的闹钟都会触发、崩溃后所有权最终稳定在一个节点）。一项属性必须经受数万个种子的检验，核心协议已经经历数百万种调度。我们使用故意破坏的协议变体，确认检验器确实能够发现故障。
 
-- `SIGKILL` a node mid-write-stream and delete its local database, so recovery
-  comes only from the bucket. Every acknowledged write returns, because the
-  output gate held each response until the write was durable.
-- Freeze an owner, write to its cells through other nodes, and unfreeze it.
-  The node sees that its lease moved and refuses to serve the old state. Each
-  write lands exactly once.
-- Cut a node off from the bucket. It fences itself.
-- Throttle the bucket to 429 on every request. The engine slows to the store's
-  rate and does not amplify the throttle.
-- Stop a full host at the provider level mid-workload. Its cells move to other
-  nodes, and the returning host rejoins with no duplicate residency.
+<a id="live-fleets-what-simulation-cannot-see"></a>
 
-Across every run of every scenario, the verification sweeps show zero body
-faults, zero status faults, and zero lost messages.
+## 真实集群：模拟看不到的行为
 
-## A few numbers we trust
+模拟无法观察真实 S3 尾延迟、真实内核和文件系统行为，以及内存压力下的 V8。常设集群实验室使用常规服务商提供的标准虚拟机，连接真实存储桶。工作负载轮换运行：具有大量 WebSocket 连接的聊天室、在数万个带校验和单元之间迁移的工作集、负载下的部署切换，以及填满内存的节点。实验室验证每个版本。我们归档每次运行的配置、验证扫描、节点日志、内核日志和各阶段耗时，包括失败的运行。
 
-- **The epoch fence holds under contention.** Five hundred concurrent
-  claimants made 5,500 attempts on the same cells: one writer for each epoch,
-  zero violations.
-- **A warm resident request is local.** A request to a resident cell does zero
-  bucket operations and returns in p50 ~1.1 ms and p99 ~7 ms (a fixed-host
-  measurement). Only a cold activation touches object storage.
-- **A durable write waits for a durability proof.** A single node proves each
-  write through the bucket, so one storage round trip is the minimum. A fleet
-  of two or more nodes can instead prove a write when each follower holds it
-  on disk. A lab fleet measured about 600 ms for a bucket proof and about 25 ms
-  for a fleet proof. The bucket upload races every fleet proof, so a slow
-  follower cannot make a write slower than a bucket proof. Concurrent writes
-  to one cell share one upload.
-- **A restore is normal work.** Placement treats the restore of an inactive
-  cell as ordinary work. The measured restore times come from the retired
-  external replicator, so this page gives no number until a fleet run measures
-  `celld-ltx`.
-- **Ten small nodes held real scale.** Ten nodes, each with 4 vCPU and 8 GB,
-  held 10,000 resident cells and 20,000 concurrent WebSocket connections. With
-  two of the ten nodes stopped, every cell was available again on another node
-  in ~11 s at the tail (with reserve headroom).
+故障注入发生在验证扫描之间。每次扫描通过不同节点读取各单元，比较状态码、响应体和完整消息账本。所有权转移期间，单元可以短暂不可用，但已提交状态必须保持完整，并且必须再次由存活节点提供服务。
 
-## Known failure edges
+测试场景包括：
 
-A fleet at its resident limit has no space for a lost node's cells, so losing
-multiple nodes degrades service. We test recovery with and without reserve
-capacity to measure this limit.
+- 在写入流进行中对节点发送 `SIGKILL`，并删除其本地数据库，使恢复只能依赖存储桶。每条已确认写入都能恢复，因为输出门控一直暂扣响应，直到写入具有持久性。
+- 冻结拥有者，通过其他节点向其单元写入，再解除冻结。节点发现租约已转移后，拒绝提供旧状态。每次写入恰好落地一次。
+- 切断节点与存储桶的连接，节点会自行隔离。
+- 让存储桶对每个请求都返回 429 限流。引擎会降低到存储服务允许的速率，不会放大限流压力。
+- 在工作负载进行中，从服务商层面停止已满载的主机。其单元迁移到其他节点，主机恢复后重新加入，不会出现重复驻留。
 
-Report a schedule that breaks a guarantee, an untested fault, or a measurement
-that you cannot reproduce in the
-[issue tracker](https://github.com/denoland/celld/issues).
+所有场景的每次运行中，验证扫描均显示：响应体错误为零、状态码错误为零、消息丢失为零。
+
+<a id="a-few-numbers-we-trust"></a>
+
+## 可信的几组测量结果
+
+- **纪元隔离在竞争下仍有效。** 500 个并发认领者对同一批单元进行了 5,500 次尝试：每个纪元只有一个写入者，违规次数为零。
+- **已驻留单元的热请求在本地处理。** 请求不执行任何存储桶操作，p50 约 1.1 ms，p99 约 7 ms（固定主机上的测量）。只有冷激活访问对象存储。
+- **持久化写入必须等待持久性证明。** 单节点通过存储桶证明每次写入，因此至少需要一次存储往返。两个或更多节点的集群可以在每个跟随节点将写入保存到磁盘时完成证明。实验集群测得存储桶证明约 600 ms，集群证明约 25 ms。存储桶上传与每次集群证明并行竞争，因此慢跟随节点不会使写入比存储桶证明更慢。同一单元的并发写入共享一次上传。
+- **恢复属于正常工作。** 放置机制将非活跃单元的恢复视为普通工作。既有恢复时间测量来自已退役的外部复制器，因此在真实集群完成 `celld-ltx` 测量前，本页不提供数字。
+- **十个小节点支撑了实际规模。** 十个节点，每个 4 vCPU、8 GB 内存，共承载 10,000 个驻留单元和 20,000 个并发 WebSocket 连接。停止其中两个节点后，所有单元在其他节点上恢复可用，尾部耗时约 11 秒（预留了容量余量）。
+
+<a id="known-failure-edges"></a>
+
+## 已知的失败边界
+
+达到驻留上限的集群没有空间容纳故障节点的单元，因此同时丢失多个节点会降低服务能力。我们分别在有、无预留容量的情况下测试恢复，以测量这一边界。
+
+如果发现违反保证的调度、未经测试的故障，或无法复现的测量结果，请在[问题追踪器](https://github.com/denoland/celld/issues)中报告。

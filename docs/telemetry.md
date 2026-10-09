@@ -1,74 +1,59 @@
-# Telemetry
+<a id="telemetry"></a>
 
-celld can record traces and logs for the requests it serves. Telemetry is off
-by default and costs nothing when off. `CELLD_OTEL=1` writes Parquet files
-under the `telemetry/` prefix of the fleet bucket, which DuckDB can query
-directly. `CELLD_OTEL=http://collector:4318` sends the same data to an
-OpenTelemetry collector.
+# 遥测
 
-The schema is version `v0-unstable`, so column names can change before a
-stable release. Each file carries the version in the object metadata name
-`celld-schema`, or `celld_schema` on an `az://` bucket.
+celld 可以为其处理的请求记录追踪和日志。遥测默认关闭，关闭时没有开销。`CELLD_OTEL=1` 会在集群存储桶的 `telemetry/` 前缀下写入 Parquet 文件，DuckDB 可以直接查询。`CELLD_OTEL=http://collector:4318` 将同样的数据发送到 OpenTelemetry 收集器。
 
-## Configuration
+数据模式版本为 `v0-unstable`，因此稳定版发布前列名可能变化。每个文件通过对象元数据 `celld-schema` 保存版本；`az://` 存储桶使用 `celld_schema`。
 
-| variable | default | effect |
+<a id="configuration"></a>
+
+## 配置
+
+| 变量 | 默认值 | 作用 |
 | --- | --- | --- |
-| `CELLD_OTEL` | `0` | `0` disables telemetry. `1` writes Parquet to the fleet bucket. An HTTP(S) collector base URL selects OTLP/HTTP protobuf. |
-| `CELLD_OTEL_BUCKET` | the fleet bucket | A different bucket for the Parquet files, on the same endpoint and credentials. |
-| `CELLD_OTEL_RETENTION` | `30d` | celld deletes telemetry files older than this. `none` disables the deletion, so your own lifecycle rules can control the data. |
-| `CELLD_OTEL_FLUSH_MS` | `300000` | celld writes a Parquet file after this many milliseconds of buffered events. |
-| `CELLD_OTEL_FLUSH_BYTES` | `5242880` | The estimated buffered bytes that trigger a flush before the interval ends. |
-| `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | A standard sampler name. `traceidratio` with `OTEL_TRACES_SAMPLER_ARG` records a fraction of the traces. |
-| `OTEL_EXPORTER_OTLP_HEADERS` | unset | A comma-separated list of `name=value` headers for the collector. |
-| `OTEL_EXPORTER_OTLP_TIMEOUT` | `10000` | The collector request timeout in milliseconds. |
-| `OTEL_SERVICE_NAME` | `celld` | The service name in the exported resource. |
+| `CELLD_OTEL` | `0` | `0` 关闭遥测；`1` 将 Parquet 写入集群存储桶；HTTP(S) 收集器基础 URL 选择 OTLP/HTTP protobuf。 |
+| `CELLD_OTEL_BUCKET` | 集群存储桶 | 为 Parquet 文件指定其他存储桶，使用相同端点和凭据。 |
+| `CELLD_OTEL_RETENTION` | `30d` | celld 删除早于该时长的遥测文件。`none` 禁止删除，便于用自己的生命周期规则管理数据。 |
+| `CELLD_OTEL_FLUSH_MS` | `300000` | 缓冲事件达到该毫秒数后，celld 写入 Parquet 文件。 |
+| `CELLD_OTEL_FLUSH_BYTES` | `5242880` | 缓冲数据的估算字节数达到该值时，在间隔结束前提前刷新。 |
+| `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | 标准采样器名称。`traceidratio` 配合 `OTEL_TRACES_SAMPLER_ARG` 可以按比例记录追踪。 |
+| `OTEL_EXPORTER_OTLP_HEADERS` | 未设置 | 发给收集器的 `name=value` 头部列表，用逗号分隔。 |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | `10000` | 收集器请求超时，以毫秒为单位。 |
+| `OTEL_SERVICE_NAME` | `celld` | 导出资源中的服务名称。 |
 
-The bucket sink requires `CELLD_BUCKET`. The OTLP sink does not.
+存储桶输出需要 `CELLD_BUCKET`，OTLP 输出不需要。
 
-A collector URL must have no query or fragment. celld appends `/v1/traces` and
-`/v1/logs` to its path and ignores `OTEL_EXPORTER_OTLP_ENDPOINT`.
+收集器 URL 不能包含查询字符串或片段。celld 在其路径后附加 `/v1/traces` 和 `/v1/logs`，并忽略 `OTEL_EXPORTER_OTLP_ENDPOINT`。
 
-`CELLD_OTEL_SINK` is removed, and a node with it set does not start. Put the
-collector base URL in `CELLD_OTEL`, or keep `CELLD_OTEL=1` for the bucket.
+`CELLD_OTEL_SINK` 已移除，设置该变量的节点不会启动。应将收集器基础 URL 放入 `CELLD_OTEL`，或继续使用 `CELLD_OTEL=1` 输出到存储桶。
 
-## What celld records
+<a id="what-celld-records"></a>
 
-celld records a span for each stateless Worker request, each cell event (a
-fetch, an alarm, an RPC, a WebSocket message), each outbound `fetch()`, and
-each cell start. A span carries the request id, the cell, the isolate, the
-queue wait, the outbound URL and status, and the known durability facts.
+## 记录的内容
 
-Each `console.log` line becomes a log record with the trace id and span id of
-its handler, across `await`. The record carries the console method's severity
-in `severity_number` and `severity_text` (OTLP fields and Parquet columns). The
-body holds only the message.
+celld 为每个无状态 Worker 请求、每个单元事件（fetch、闹钟、RPC、WebSocket 消息）、每个出站 `fetch()` 和每次单元启动记录一个 span（追踪片段）。span 包含请求 ID、单元、隔离实例、队列等待时间、出站 URL 与状态，以及已知的持久化信息。
 
-| method | severity number | severity text |
+每条 `console.log` 输出都会成为日志记录，并关联处理函数的 trace ID 和 span ID，这种关联在 `await` 之后仍然保留。记录通过 `severity_number` 和 `severity_text` 保存控制台方法对应的严重级别（同时用于 OTLP 字段和 Parquet 列），正文只包含消息。
+
+| 方法 | 严重级别编号 | 严重级别文本 |
 | --- | --- | --- |
 | `console.debug` | `5` | `DEBUG` |
-| `console.log`, `console.info` | `9` | `INFO` |
+| `console.log`、`console.info` | `9` | `INFO` |
 | `console.warn` | `13` | `WARN` |
 | `console.error` | `17` | `ERROR` |
 
-Log files from earlier celld versions have no severity columns. Read a mix of
-versions with `union_by_name = true`.
+较早版本 celld 的日志文件没有严重级别列。混合读取多个版本时，应使用 `union_by_name = true`。
 
-celld reads the W3C `traceparent` header on incoming requests and sends it on
-outbound `fetch()`. A malformed header starts a new trace. A Worker call to a
-Durable Object stays in one trace.
+celld 读取入站请求中的 W3C `traceparent` 头，并在出站 `fetch()` 中发送它。格式错误的头会开启新的追踪。Worker 调用 Durable Object 时保持在同一追踪内。
 
-The sampler decides at the start of a request, and an unsampled request
-records nothing. A ratio of `0` records no traces and `1` records all. An
-intermediate ratio makes the same trace-id decision on each node. celld keeps
-a valid incoming context that the sampler rejects: an outbound `fetch()` or
-Durable Object call keeps the trace id, uses a new span id, and keeps the
-sampled flag clear.
+采样器在请求开始时决定是否采样，未采样请求不会记录任何内容。比例 `0` 不记录追踪，`1` 记录全部追踪。中间比例会在每个节点上根据 trace ID 作出相同决定。对于有效但被采样器拒绝的入站上下文，celld 仍会保留：出站 `fetch()` 或 Durable Object 调用沿用 trace ID，生成新的 span ID，并保持采样标志关闭。
 
-Under load, telemetry sheds before requests do, and celld counts what it
-sheds. celld records no metrics yet.
+负载过高时，celld 会先丢弃遥测，而不是拒绝请求，并统计丢弃量。celld 尚未记录指标。
 
-## Query the bucket with DuckDB
+<a id="query-the-bucket-with-duckdb"></a>
+
+## 使用 DuckDB 查询存储桶
 
 ```sql
 INSTALL httpfs; LOAD httpfs;
@@ -81,53 +66,41 @@ CREATE VIEW traces AS SELECT * FROM
 CREATE VIEW logs AS SELECT * FROM
   read_parquet('s3://YOUR-BUCKET/telemetry/logs/*/*/*/*/*/*.parquet');
 
--- The slowest requests.
+-- 耗时最长的请求。
 SELECT name, duration_us, trace_id FROM traces
   ORDER BY duration_us DESC LIMIT 20;
 
--- The error lines.
+-- 错误日志。
 SELECT time_unix_us, body FROM logs WHERE severity_number >= 17;
 
--- Every log line, inside the span that wrote it.
+-- 每条日志及写出它的追踪片段。
 SELECT l.body, t.name, t.duration_us FROM logs l
   JOIN traces t ON l.trace_id = t.trace_id AND l.span_id = t.span_id;
 ```
 
-A non-AWS S3-compatible endpoint needs `URL_STYLE 'path'`. A plain-HTTP
-endpoint also needs `USE_SSL false`.
+非 AWS 的 S3 兼容端点需要 `URL_STYLE 'path'`。明文 HTTP 端点还需要 `USE_SSL false`。
 
-Files are partitioned by node and hour:
-`telemetry/traces/<node>/<yyyy>/<mm>/<dd>/<hh>/<id>.parquet`.
+文件按节点和小时分区：`telemetry/traces/<node>/<yyyy>/<mm>/<dd>/<hh>/<id>.parquet`。
 
-## Flushing and delivery
+<a id="flushing-and-delivery"></a>
 
-celld writes one Parquet file per flush, at 5 minutes
-(`CELLD_OTEL_FLUSH_MS=300000`) or 5 MiB of estimated buffered events
-(`CELLD_OTEL_FLUSH_BYTES=5242880`), whichever comes first. The event that
-reaches the target can take the batch past it.
+## 刷新与投递
 
-Keep the defaults if you run no compaction job. They produce large files, but
-data can arrive up to 5 minutes late. `CELLD_OTEL_FLUSH_MS=5000` gives a
-five-second interval, plus upload or collector delay. A short interval makes
-many small files and slows queries within hours, so start the compaction job
-first. For a near-live view, use the OTLP sink with the same short interval.
+celld 每次刷新写入一个 Parquet 文件，默认在 5 分钟（`CELLD_OTEL_FLUSH_MS=300000`）或缓冲事件估算达到 5 MiB（`CELLD_OTEL_FLUSH_BYTES=5242880`）时触发，以先达到者为准。触发阈值的那条事件可能使批次略微超过目标大小。
 
-The OTLP sink makes at most five attempts per batch on a transient failure
-(HTTP 408, 429, 502, 503, or 504). It uses exponential backoff with jitter and
-honors `Retry-After`, with each delay capped at 30 seconds. A permanent
-refusal drops the batch.
+如果没有运行合并任务，应保留默认值。默认设置生成较大的文件，但数据最多可能延迟 5 分钟。`CELLD_OTEL_FLUSH_MS=5000` 设置五秒间隔，另加上传或收集器延迟。短间隔会产生大量小文件，数小时内便可能拖慢查询，因此应先启动合并任务。需要接近实时的视图时，可以使用 OTLP 输出，并采用相同的短间隔。
 
-The exporter holds one retrying batch, and the input channel holds 8192 new
-events. When the channel is full, celld drops and counts new telemetry, so
-request handling continues.
+发生临时失败（HTTP 408、429、502、503 或 504）时，OTLP 输出对每个批次最多尝试五次，采用带随机抖动的指数退避，并遵循 `Retry-After`，每次延迟最多 30 秒。永久拒绝会丢弃批次。
 
-The retention sweep runs at startup and six hours after each completed sweep.
+导出器保留一个正在重试的批次，输入通道最多容纳 8192 个新事件。通道满时，celld 丢弃并统计新增遥测，使请求处理继续进行。
 
-## Compaction
+保留期清理在启动时运行，并在每次清理完成六小时后再次运行。
 
-celld does not compact its own files. Run a compaction job on a maintenance
-node once an hour, for the hour that just ended. Do not compact the current
-hour, because a node still writes to it.
+<a id="compaction"></a>
+
+## 文件合并
+
+celld 不会合并自己的遥测文件。应在维护节点上每小时运行一次合并任务，处理刚刚结束的那个小时。不要合并当前小时，因为节点仍在写入。
 
 ```sql
 COPY (
@@ -138,4 +111,4 @@ COPY (
   (FORMAT parquet, COMPRESSION zstd);
 ```
 
-Delete the source files after DuckDB writes the compacted file.
+DuckDB 写出合并文件后，再删除源文件。
